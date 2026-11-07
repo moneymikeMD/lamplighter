@@ -217,6 +217,7 @@ pub(crate) async fn recall(
         && let Ok(mut v) = embed_texts(&state, vec![b.query]).await
     {
         q.embedding = v.pop();
+        q.embedding_digest = Some(state.embedder.model_digest().to_owned());
     }
     let mode = if q.embedding.is_some() {
         "hybrid"

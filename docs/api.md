@@ -18,7 +18,7 @@ lampl serve keys list              # client names
 lampl serve keys revoke <client>   # that client alone loses access
 ```
 
-The file holds `<client> <sha256-hex>` lines (`#` comments allowed, created owner-only). The running server re-reads it within a second of a change, so adding or revoking needs no restart; a malformed edit is logged and the previous keys stay active. The server will not start with no keys file or an empty one.
+The file holds `<client> <sha256-hex>` lines (`#` comments allowed, created owner-only; the server refuses to start if the file is readable by group or others). The running server re-reads it within a second of a change, so adding or revoking needs no restart; a malformed or unreadable edit fails closed: every keyed request gets 401 and `/health` answers 503 until the file is fixed (a revoke must take effect). The server will not start with no keys file or an empty one.
 
 ## Configuration
 
@@ -78,7 +78,7 @@ Memories in id order (id is time-ordered), all of them including superseded. `li
 
 ### `POST /v1/recall`
 
-Body: `query`, optional `project`, `limit` (1..=100, default 10). Returns `{"mode": "hybrid"|"full-text", "hits": [{"memory", "score", "cosine", "coverage"}]}`. Hybrid full-text plus vector ranking with reciprocal-rank fusion and the relevance floor; superseded memories are excluded. `mode` is `full-text` when the embedder is unavailable, and rows not yet embedded are still found through full-text.
+Body: `query`, optional `project`, `limit` (1..=100, default 10). Returns `{"mode": "hybrid"|"full-text", "hits": [{"memory", "score", "cosine", "coverage"}]}`. Hybrid full-text plus vector ranking (the vector arm compares only rows embedded by the current model digest; rows from another model fall back to full-text until re-embedded) with reciprocal-rank fusion and the relevance floor; superseded memories are excluded. `mode` is `full-text` when the embedder is unavailable, and rows not yet embedded are still found through full-text.
 
 ### `POST /v1/links`
 
@@ -98,4 +98,4 @@ Body: the NDJSON produced by export (up to 256 MiB). Atomic: any bad line or a l
 
 ## Background embedding
 
-A tokio task claims rows with no vector, or a vector from a different model digest, using `SELECT ... FOR UPDATE SKIP LOCKED` in batches of 16, embeds them (if a batch fails while the embedder is otherwise healthy, rows are retried one by one and only the rejected rows are skipped) with the configured embedder and writes the vectors. It sweeps every `--embed-interval-secs`, replacing memorygraph's hourly reindex timer. While idle it probes the embedder every 60 s (every sweep while unhealthy) so `/health` tracks reality.
+A tokio task claims rows with no vector, or a vector from a different model digest, in batches of 16: a short transaction marks them with a 5-minute lease (`FOR UPDATE SKIP LOCKED`), the embedder runs with no transaction open, and a second short transaction writes the vectors, so a crash leaves rows reclaimable once the lease lapses. It embeds them (if a batch fails while the embedder is otherwise healthy, rows are retried one by one and only the rejected rows are skipped) with the configured embedder and writes the vectors. It sweeps every `--embed-interval-secs`, replacing memorygraph's hourly reindex timer. While idle it probes the embedder every 60 s (every sweep while unhealthy) so `/health` tracks reality.
