@@ -12,6 +12,15 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+lampl-core = { path = "../lampl-core", version = "0.1.0" }
 lampl-embed = { path = "../lampl-embed", version = "0.1.0" }
+lampl-store-sqlite = { path = "../lampl-store-sqlite", version = "0.1.0" }
+serde.workspace = true
 serde_json.workspace = true
 clap.workspace = true
+dirs.workspace = true
+toml.workspace = true
+ureq.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
