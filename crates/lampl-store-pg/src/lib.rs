@@ -115,6 +115,19 @@ impl PgStore {
         Ok(PgStore { pool })
     }
 
+    /// Highest schema version this build's migrations bring a database to.
+    pub fn supported_schema_version() -> i32 {
+        sqlx::migrate!("./migrations")
+            .iter()
+            .map(|m| i32::try_from(m.version).unwrap_or(i32::MAX))
+            .max()
+            .unwrap_or(0)
+    }
+
+    pub fn pool(&self) -> &PgPool {
+        &self.pool
+    }
+
     pub async fn schema_version(&self) -> Result<i32, StoreError> {
         let v: Option<i32> = sqlx::query_scalar("SELECT max(version) FROM schema_version")
             .fetch_one(&self.pool)

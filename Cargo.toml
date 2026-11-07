@@ -27,6 +27,14 @@ tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros"] }
 uuid = { version = "1.29.1", features = ["serde", "v7"] }
 chrono = { version = "0.4.45", default-features = false, features = ["std", "clock", "serde"] }
 serde = { version = "1.0.229", features = ["derive"] }
+axum = { version = "0.8.9", features = ["macros"] }
+futures-util = { version = "0.3.34", default-features = false }
+tower = "0.5.3"
+http-body-util = "0.1.5"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+sha2 = "0.11.1"
+getrandom = "0.4.3"
 
 [workspace.lints.rust]
 unsafe_code = "deny"
