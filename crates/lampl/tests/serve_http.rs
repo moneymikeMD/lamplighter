@@ -574,7 +574,8 @@ async fn pg_export_then_import_reproduces_memories_and_links() {
 
     let export = call(&a.app, Method::GET, "/v1/export", ka, None).await;
     assert_eq!(export.status, StatusCode::OK);
-    assert_eq!(export.bytes.iter().filter(|c| **c == b'\n').count(), 3);
+    // header, two memories, one link, end marker
+    assert_eq!(export.bytes.iter().filter(|c| **c == b'\n').count(), 5);
 
     let first = send(&b.app, Method::POST, "/v1/import", kb, export.bytes.clone())
         .await

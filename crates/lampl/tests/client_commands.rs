@@ -87,6 +87,10 @@ fn start(embedder: Fake) -> Option<Live> {
     let key = generate_key().unwrap();
     let keys = std::env::temp_dir().join(format!("lampl-client-keys-{}", Uuid::now_v7()));
     std::fs::write(&keys, format!("tester {}\n", hash_key(&key))).unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&keys, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
     let (state, url) = rt.block_on(async {
         let mut conn = sqlx::PgConnection::connect(&admin).await.unwrap();
         sqlx::query(sqlx::AssertSqlSafe(format!("CREATE DATABASE {db}")))
