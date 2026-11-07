@@ -21,6 +21,12 @@ thiserror = "2.0.21"
 ureq = { version = "3.5.1", features = ["json"] }
 dirs = "7.0.0"
 clap = { version = "4.6.7", features = ["derive"] }
+sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "migrate", "macros", "chrono", "uuid"] }
+pgvector = { version = "0.4.2", features = ["sqlx", "halfvec"] }
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros"] }
+uuid = { version = "1.29.1", features = ["serde", "v7"] }
+chrono = { version = "0.4.45", default-features = false, features = ["std", "clock", "serde"] }
+serde = { version = "1.0.229", features = ["derive"] }
 
 [workspace.lints.rust]
 unsafe_code = "deny"
