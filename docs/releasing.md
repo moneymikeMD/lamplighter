@@ -33,10 +33,6 @@ release-please edits version strings through `extra-files` in `release-please-co
 | Release PR has no checks | The App token is not in use or has expired. Confirm `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY` and that the app is installed on this repo. |
 | `lamplighter--vX.Y.Z` tag missing | Create it at the release commit: `gh api repos/moneymikeMD/lamplighter/git/refs -f ref=refs/tags/lamplighter--vX.Y.Z -f sha=<sha>`. |
 
-## First release
-
-No `v0.1.0` tag exists, so `.release-please-manifest.json` records `0.0.0` as the last release and `release-please-config.json` sets `"release-as": "0.1.0"`, which makes the first release PR propose exactly 0.1.0 (release-please's manifest docs: `release-as` ignores conventional commits). After the first release PR merges, remove the `release-as` line and set the manifest to `0.1.0` if release-please has not already; left in place it pins every later release to 0.1.0.
-
 ## One-time steps
 
 The first image push creates the ghcr package as private. An owner must set its visibility to Public (package settings, Danger Zone); the change cannot be undone. Until then the compose bundle cannot pull the image.
