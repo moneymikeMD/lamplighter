@@ -62,11 +62,11 @@ pub struct Floor {
 }
 
 impl Default for Floor {
-    /// UNCALIBRATED starting values; see docs/ranking.md.
+    /// Calibrated on Qwen3-Embedding-0.6B vectors; method and numbers in docs/ranking.md.
     fn default() -> Self {
         Floor {
-            cosine: 0.5,
-            coverage: 0.5,
+            cosine: 0.70,
+            coverage: 0.24,
         }
     }
 }
