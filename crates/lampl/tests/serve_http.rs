@@ -228,10 +228,31 @@ async fn pg_missing_or_wrong_key_is_401_and_every_response_carries_the_api_versi
     assert_eq!(ok.status, StatusCode::CREATED);
     let missing = call(&h.app, Method::GET, "/nope", None, None).await;
     assert_eq!(missing.status, StatusCode::NOT_FOUND);
-    let health = call(&h.app, Method::GET, "/health", None, None).await;
+    let health = call(&h.app, Method::GET, "/health", Some(&h.key), None).await;
     assert_eq!(health.status, StatusCode::OK);
+    let health_none = call(&h.app, Method::GET, "/health", None, None).await;
+    assert_eq!(health_none.status, StatusCode::UNAUTHORIZED);
+    assert!(
+        health_none.json().get("memory_count").is_none(),
+        "no details without a key"
+    );
+    let health_wrong = call(&h.app, Method::GET, "/health", Some("lampl_nope"), None).await;
+    assert_eq!(health_wrong.status, StatusCode::UNAUTHORIZED);
+    let livez = call(&h.app, Method::GET, "/livez", None, None).await;
+    assert_eq!(livez.status, StatusCode::OK);
+    assert_eq!(livez.json(), json!({"status": "alive"}));
 
-    for r in [&none, &wrong, &post, &ok, &missing, &health] {
+    for r in [
+        &none,
+        &wrong,
+        &post,
+        &ok,
+        &missing,
+        &health,
+        &health_none,
+        &health_wrong,
+        &livez,
+    ] {
         assert_eq!(
             r.headers.get(API_VERSION_HEADER).unwrap(),
             expected.as_str()
@@ -266,7 +287,7 @@ async fn pg_health_reports_degraded_when_the_embedder_fails_and_recovers() {
     assert!(stored.json()["embedding_model"].is_null());
     assert!(embed_pending(&h.state).await.is_err());
 
-    let health = call(&h.app, Method::GET, "/health", None, None)
+    let health = call(&h.app, Method::GET, "/health", Some(&h.key), None)
         .await
         .json();
     assert_eq!(health["degraded"], true);
@@ -297,7 +318,7 @@ async fn pg_health_reports_degraded_when_the_embedder_fails_and_recovers() {
     embedder.fail.store(false, Ordering::Relaxed);
     probe(&h.state).await;
     assert_eq!(embed_pending(&h.state).await.unwrap(), 1);
-    let healed = call(&h.app, Method::GET, "/health", None, None)
+    let healed = call(&h.app, Method::GET, "/health", Some(&h.key), None)
         .await
         .json();
     assert_eq!(healed["degraded"], false);
@@ -324,7 +345,7 @@ async fn pg_empty_store_reports_an_explicit_zero_count() {
     };
     let h = harness(&db, FakeEmbedder::new(false)).await;
     probe(&h.state).await;
-    let health = call(&h.app, Method::GET, "/health", None, None)
+    let health = call(&h.app, Method::GET, "/health", Some(&h.key), None)
         .await
         .json();
     assert_eq!(health["memory_count"], 0);
@@ -515,7 +536,7 @@ async fn pg_export_then_import_reproduces_memories_and_links() {
     .json();
     assert_eq!(got["title"], "one");
     assert_eq!(got["created_at"], m1["created_at"]);
-    let health = call(&b.app, Method::GET, "/health", None, None)
+    let health = call(&b.app, Method::GET, "/health", Some(&b.key), None)
         .await
         .json();
     assert_eq!(health["memory_count"], 2);
@@ -539,10 +560,34 @@ async fn pg_export_then_import_reproduces_memories_and_links() {
     dst.drop_db().await;
 }
 
+#[test]
+fn keys_add_list_revoke_is_hashed_at_rest_and_revocable() {
+    let path = std::env::temp_dir().join(format!("lampl-keys-cli-{}", Uuid::now_v7()));
+    let key = lampl::serve::add_key(&path, "mac").unwrap();
+    let other = lampl::serve::add_key(&path, "desktop").unwrap();
+    assert!(
+        lampl::serve::add_key(&path, "mac").is_err(),
+        "duplicate name"
+    );
+    assert_eq!(lampl::serve::list_keys(&path).unwrap(), ["desktop", "mac"]);
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(
+        !text.contains(&key) && text.contains(&hash_key(&key)),
+        "only hashes at rest"
+    );
+    let store = KeyStore::open(&path).unwrap();
+    assert_eq!(store.authenticate(&key).as_deref(), Some("mac"));
+    lampl::serve::revoke_key(&path, "mac").unwrap();
+    assert!(lampl::serve::revoke_key(&path, "mac").is_err());
+    let store = KeyStore::open(&path).unwrap();
+    assert!(store.authenticate(&key).is_none());
+    assert_eq!(store.authenticate(&other).as_deref(), Some("desktop"));
+}
+
 #[derive(clap::Parser)]
 struct Wrapper {
     #[command(flatten)]
-    args: lampl::serve::Args,
+    cmd: lampl::serve::Cmd,
 }
 
 #[test]
@@ -568,7 +613,7 @@ fn pg_serve_refuses_to_start_against_a_newer_schema() {
         "--listen",
         "127.0.0.1:0",
     ]);
-    let err = lampl::serve::run(w.args).expect_err("must refuse");
+    let err = lampl::serve::run(w.cmd).expect_err("must refuse");
     assert!(err.contains("newer than this build understands"), "{err}");
     rt.block_on(db.drop_db());
 }

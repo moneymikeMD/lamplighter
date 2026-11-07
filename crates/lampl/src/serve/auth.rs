@@ -30,6 +30,12 @@ pub enum KeyError {
     Malformed { line: usize },
     #[error("keys file {} holds no keys; refusing to serve without authentication", .path.display())]
     Empty { path: PathBuf },
+    #[error("client name must be non-empty, contain no whitespace and not start with `#`")]
+    BadName,
+    #[error("a key for `{0}` already exists; revoke it first")]
+    Exists(String),
+    #[error("no key for `{0}`")]
+    Unknown(String),
     #[error("system randomness unavailable: {0}")]
     Random(String),
 }
@@ -64,6 +70,81 @@ fn hex(bytes: &[u8]) -> String {
 /// The hex SHA-256 stored in the keys file for a presented key.
 pub fn hash_key(key: &str) -> String {
     hex(&Sha256::digest(key.as_bytes()))
+}
+
+/// Appends a new client key to the keys file (created owner-only if absent) and returns the key, shown once.
+pub fn add_key(path: &Path, name: &str) -> Result<String, KeyError> {
+    if name.is_empty() || name.chars().any(char::is_whitespace) || name.starts_with('#') {
+        return Err(KeyError::BadName);
+    }
+    let mut lines = read_lines(path)?;
+    if parse_names(&lines)?.iter().any(|n| n == name) {
+        return Err(KeyError::Exists(name.to_owned()));
+    }
+    let key = generate_key()?;
+    lines.push(format!("{name} {}", hash_key(&key)));
+    write_lines(path, &lines)?;
+    Ok(key)
+}
+
+/// Client names in the keys file.
+pub fn list_keys(path: &Path) -> Result<Vec<String>, KeyError> {
+    parse_names(&read_lines(path)?)
+}
+
+/// Removes a client's key; the running server stops accepting it within a second.
+pub fn revoke_key(path: &Path, name: &str) -> Result<(), KeyError> {
+    let lines = read_lines(path)?;
+    let kept: Vec<String> = lines
+        .iter()
+        .filter(|l| l.split_whitespace().next() != Some(name) || l.trim_start().starts_with('#'))
+        .cloned()
+        .collect();
+    if kept.len() == lines.len() {
+        return Err(KeyError::Unknown(name.to_owned()));
+    }
+    write_lines(path, &kept)
+}
+
+fn read_lines(path: &Path) -> Result<Vec<String>, KeyError> {
+    match std::fs::read_to_string(path) {
+        Ok(t) => Ok(t.lines().map(str::to_owned).collect()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(source) => Err(KeyError::Read {
+            path: path.to_owned(),
+            source,
+        }),
+    }
+}
+
+fn parse_names(lines: &[String]) -> Result<Vec<String>, KeyError> {
+    let by_hash = parse(&lines.join("\n"))?;
+    let mut names: Vec<String> = by_hash.into_values().collect();
+    names.sort();
+    Ok(names)
+}
+
+fn write_lines(path: &Path, lines: &[String]) -> Result<(), KeyError> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let io = |source| KeyError::Read {
+        path: path.to_owned(),
+        source,
+    };
+    let tmp = path.with_extension("tmp");
+    let mut f = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(&tmp)
+        .map_err(io)?;
+    let mut text = lines.join("\n");
+    if !text.is_empty() {
+        text.push('\n');
+    }
+    f.write_all(text.as_bytes()).map_err(io)?;
+    std::fs::rename(&tmp, path).map_err(io)
 }
 
 /// A fresh 256-bit key; the caller shows it once and stores only `hash_key` of it.

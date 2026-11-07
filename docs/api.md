@@ -8,9 +8,17 @@ Every response, including errors and `/health`, carries `X-Lampl-Api-Version: <i
 
 ## Authentication
 
-`Authorization: Bearer lampl_<64 hex>` on everything under `/v1`; a missing or unknown key is `401` with `WWW-Authenticate: Bearer`. `/health` is open so monitors need no key; it exposes counts only.
+`Authorization: Bearer lampl_<64 hex>` on everything under `/v1` and on `/health`; a missing or unknown key is `401` with `WWW-Authenticate: Bearer` and no details. The only open endpoint is `GET /livez`, which answers `{"status": "alive"}` and says nothing about the store or embedder.
 
-Keys live as `<client> <sha256-hex>` lines in the file named by `--keys-file` or `$LAMPL_KEYS_FILE` (`#` comments allowed). The server stores only hashes. `lampl keygen <client>` prints a new key (give it to the client, it is not recoverable) and the line to append. Deleting a line revokes that client alone; the file is re-read within a second of changing, no restart. A malformed edit is logged and the previous keys stay active. The server will not start with no keys file or an empty one.
+Keys are managed with the keys file named by `--keys-file` or `$LAMPL_KEYS_FILE`:
+
+```
+lampl serve keys add <client>      # prints the key once; stores only its SHA-256
+lampl serve keys list              # client names
+lampl serve keys revoke <client>   # that client alone loses access
+```
+
+The file holds `<client> <sha256-hex>` lines (`#` comments allowed, created owner-only). The running server re-reads it within a second of a change, so adding or revoking needs no restart; a malformed edit is logged and the previous keys stay active. The server will not start with no keys file or an empty one.
 
 ## Configuration
 
@@ -29,7 +37,11 @@ If the in-process model weights are missing the server still starts, reports `de
 
 Errors are `{"error": "<message>"}` with the matching status.
 
-### `GET /health`
+### `GET /livez`
+
+Open, no details: `{"status": "alive"}`. Process liveness only; it proves nothing about the store.
+
+### `GET /health` (API key required)
 
 ```json
 {
@@ -49,7 +61,7 @@ Errors are `{"error": "<message>"}` with the matching status.
 }
 ```
 
-`status` is `ok` only when `degraded` is false. `degraded` is true when the last embedder call failed (recall is then full-text only) or `vector_coverage` is below `min_coverage`. `vector_coverage` is rows embedded by the current model over all rows, and is `1.0` for an empty store, where `memory_count: 0` says so explicitly. `503` with `status: "unavailable"` when the database cannot be queried. Monitors should assert `degraded == false` and the coverage they expect, not just HTTP 200.
+`status` is `ok` only when `degraded` is false. `degraded` is true when the last embedder call failed (recall is then full-text only) or `vector_coverage` is below `min_coverage`. `vector_coverage` is rows embedded by the current model over all rows, and is `1.0` for an empty store, where `memory_count: 0` says so explicitly. `503` with `status: "unavailable"` when the database cannot be queried. Monitors need a key and should assert `degraded == false` and the coverage they expect, not just HTTP 200.
 
 ### `POST /v1/memories`
 

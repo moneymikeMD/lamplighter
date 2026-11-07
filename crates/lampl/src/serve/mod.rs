@@ -24,7 +24,7 @@ use lampl_embed::{
 };
 use lampl_store_pg::PgStore;
 
-pub use auth::{KeyError, KeyStore, generate_key, hash_key};
+pub use auth::{KeyError, KeyStore, add_key, generate_key, hash_key, list_keys, revoke_key};
 pub use health::EmbedStatus;
 pub use worker::{WorkerError, embed_pending, probe};
 
@@ -97,6 +97,10 @@ async fn version_header(req: Request, next: Next) -> Response {
     resp
 }
 
+async fn livez() -> axum::Json<serde_json::Value> {
+    axum::Json(serde_json::json!({ "status": "alive" }))
+}
+
 async fn fallback() -> Response {
     ApiError::not_found().into_response()
 }
@@ -120,8 +124,16 @@ pub fn router(state: Arc<AppState>) -> Router {
             Arc::clone(&state),
             auth::require_key,
         ));
+    let health =
+        Router::new()
+            .route("/health", get(health::health))
+            .layer(middleware::from_fn_with_state(
+                Arc::clone(&state),
+                auth::require_key,
+            ));
     Router::new()
-        .route("/health", get(health::health))
+        .route("/livez", get(livez))
+        .merge(health)
         .nest("/v1", v1)
         .fallback(fallback)
         .layer(middleware::from_fn(version_header))
@@ -156,7 +168,7 @@ pub struct Args {
     /// Postgres URL (default: $LAMPL_DATABASE_URL; prefer the environment so the password stays out of argv)
     #[arg(long)]
     database_url: Option<String>,
-    /// File of `<client> <sha256-hex>` lines (default: $LAMPL_KEYS_FILE); create entries with `lampl keygen`
+    /// File of `<client> <sha256-hex>` lines (default: $LAMPL_KEYS_FILE); manage with `lampl serve keys`
     #[arg(long)]
     keys_file: Option<PathBuf>,
     /// Use an HTTP embedding endpoint instead of the in-process model
@@ -177,22 +189,56 @@ pub struct Args {
 }
 
 #[derive(clap::Args, Debug)]
-pub struct KeygenArgs {
-    /// Client name, e.g. the machine this key is for
-    name: String,
+#[command(args_conflicts_with_subcommands = true)]
+pub struct Cmd {
+    #[command(subcommand)]
+    keys: Option<Sub>,
+    #[command(flatten)]
+    serve: Args,
 }
 
-pub fn keygen(args: &KeygenArgs) -> Result<(), String> {
-    if args.name.is_empty() || args.name.chars().any(char::is_whitespace) {
-        return Err("client name must be non-empty and contain no whitespace".to_owned());
+#[derive(clap::Subcommand, Debug)]
+enum Sub {
+    /// Manage per-client API keys in the keys file
+    Keys {
+        /// Keys file (default: $LAMPL_KEYS_FILE)
+        #[arg(long, global = true)]
+        keys_file: Option<PathBuf>,
+        #[command(subcommand)]
+        action: KeysAction,
+    },
+}
+
+#[derive(clap::Subcommand, Debug)]
+enum KeysAction {
+    /// Create a key for a client; the key is printed once and only its hash is stored
+    Add { name: String },
+    /// List client names
+    List,
+    /// Revoke a client's key
+    Revoke { name: String },
+}
+
+fn keys_command(keys_file: Option<PathBuf>, action: &KeysAction) -> Result<(), String> {
+    let path = keys_file
+        .or_else(|| std::env::var_os("LAMPL_KEYS_FILE").map(PathBuf::from))
+        .ok_or("no keys file: set LAMPL_KEYS_FILE or pass --keys-file")?;
+    match action {
+        KeysAction::Add { name } => {
+            let key = add_key(&path, name).map_err(|e| e.to_string())?;
+            println!("{key}");
+            eprintln!("key for `{name}` created; this is the only time it is shown");
+        }
+        KeysAction::List => {
+            for name in list_keys(&path).map_err(|e| e.to_string())? {
+                println!("{name}");
+            }
+        }
+        KeysAction::Revoke { name } => {
+            revoke_key(&path, name).map_err(|e| e.to_string())?;
+            eprintln!("key for `{name}` revoked");
+        }
     }
-    let key = generate_key().map_err(|e| e.to_string())?;
-    println!("key (give to the client, shown once): {key}");
-    println!(
-        "keys-file line (append on the server): {} {}",
-        args.name,
-        hash_key(&key)
-    );
     Ok(())
 }
 
@@ -223,7 +269,14 @@ fn build_embedder(args: &Args) -> Result<(SharedEmbedder, EmbedMode), String> {
     Ok((embedder, EmbedMode::InProcess))
 }
 
-pub fn run(args: Args) -> Result<(), String> {
+pub fn run(cmd: Cmd) -> Result<(), String> {
+    if let Some(Sub::Keys { keys_file, action }) = cmd.keys {
+        return keys_command(keys_file, &action);
+    }
+    serve(cmd.serve)
+}
+
+fn serve(args: Args) -> Result<(), String> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
