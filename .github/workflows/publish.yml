@@ -1,0 +1,36 @@
+name: publish
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to publish to crates.io
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  crates:
+    runs-on: ubuntu-latest
+    env:
+      CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - run: rustup show
+      - name: Publish in dependency order, skipping versions already on crates.io
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "lampl") | .version')
+          for crate in lampl-core lampl-embed lampl-store-pg lampl-store-sqlite lampl lamplighter; do
+            status=$(curl -s -o /dev/null -w '%{http_code}' -A 'lamplighter-release (github.com/moneymikeMD/lamplighter)' "https://crates.io/api/v1/crates/${crate}/${version}")
+            if [ "$status" = 200 ]; then
+              echo "${crate} ${version} already published"
+            else
+              cargo publish -p "${crate}" --locked
+            fi
+          done

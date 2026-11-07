@@ -48,3 +48,7 @@ needless_pass_by_value = "warn"
 redundant_closure_for_method_calls = "warn"
 semicolon_if_nothing_returned = "warn"
 uninlined_format_args = "warn"
+
+[profile.dist]
+inherits = "release"
+lto = "thin"
