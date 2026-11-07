@@ -1,0 +1,88 @@
+name: bench
+
+on:
+  workflow_dispatch:
+    inputs:
+      subset:
+        description: Question subset (ci or full)
+        default: ci
+  pull_request:
+    paths:
+      - crates/lampl-core/src/ranking.rs
+      - crates/lampl-core/src/model.rs
+      - crates/lampl-store-pg/**
+      - crates/lampl-embed/**
+      - crates/lampl-bench/**
+      - docs/bench/public/**
+      - .github/workflows/bench.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bench-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  longmemeval:
+    name: longmemeval (${{ inputs.subset || 'ci' }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17@sha256:7d0a41464797aeb9862dfdc0bbf1526b82cfd324cdd8036df19e3545f4a9ccb8
+        env:
+          POSTGRES_PASSWORD: bench
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2.9.3
+      - uses: actions/cache@v6.1.0
+        with:
+          path: ~/.cache/lamplighter/models
+          key: qwen3-embedding-0.6b-v1
+      - uses: actions/cache@v6.1.0
+        with:
+          path: ~/.cache/lamplighter/bench
+          key: longmemeval-s-cleaned-98d7416c
+      - run: cargo build --release -p lampl -p lampl-bench
+      - name: Prepare model and dataset
+        run: |
+          ./target/release/lampl bench-embed --prepare --texts docs/bench/embed/texts-47.jsonl > /dev/null
+          ./target/release/lampl-bench fetch
+      - name: Start lampl serve
+        run: |
+          export LAMPL_KEYS_FILE="$RUNNER_TEMP/keys"
+          key=$(./target/release/lampl serve keys add bench 2>/dev/null)
+          echo "::add-mask::$key"
+          echo "LAMPL_API_KEY=$key" >> "$GITHUB_ENV"
+          ./target/release/lampl serve \
+            --database-url postgres://postgres:bench@localhost:5432/postgres \
+            --listen 127.0.0.1:7878 > "$RUNNER_TEMP/serve.log" 2>&1 &
+          for _ in $(seq 60); do
+            curl -sf http://127.0.0.1:7878/livez > /dev/null && exit 0
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/serve.log"
+          exit 1
+        env:
+          RUST_LOG: info
+      - name: Run
+        run: |
+          ./target/release/lampl-bench run --subset "${SUBSET}" --json-out results.json | tee results.txt
+        env:
+          SUBSET: ${{ inputs.subset || 'ci' }}
+      - uses: actions/upload-artifact@v7.0.2
+        if: always()
+        with:
+          name: bench-longmemeval
+          path: |
+            results.txt
+            results.json
