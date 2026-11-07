@@ -15,15 +15,14 @@ A fused candidate is kept when `cosine >= Floor.cosine` **or** `coverage >= Floo
 
 ## Calibration status
 
-**The default floor (`cosine 0.5`, `coverage 0.5`) is UNCALIBRATED.** It is a starting point so the mechanism and its tests exist; it is not the recalibrated value the design calls for. The production
-memorygraph numbers (0.58 / 0.5) were tuned on different vectors and are deliberately not copied.
+**The default floor (`cosine 0.5`, `coverage 0.5`) is a placeholder** until the calibration follow-up ticket lands; it needs the private lab gold set, so it is not done here and no tuned values are claimed.
+The production memorygraph numbers (0.58 / 0.5) were tuned on different vectors and are deliberately not copied.
 
-Method to run, once a public gold set exists (public material only; the private homelab gold set must not enter this repo):
+Method for that ticket:
 
 1. Embed the gold set's memories and queries with `lampl-embed` (Qwen3-Embedding-0.6B, candle, no instruction prefix).
 2. Label each (query, memory) pair relevant or not, including queries with no relevant memory.
 3. Sweep `cosine` over 0.30..0.80 and `coverage` over 0.20..0.80 in steps of 0.02; for each pair of values measure recall of relevant items and the rate at which no-answer queries return anything.
-4. Choose the pair with the highest recall subject to a zero-result rate of at least 95% on no-answer queries; record the values, the gold set and the sweep table here.
+4. Choose the pair with the highest recall subject to a zero-result rate of at least 95% on no-answer queries; record the values, the data and the sweep table here.
 
-Not done in this ticket: the embedding model weights were not available in the implementation environment, so no real vectors were measured. The tests use hand-built orthogonal unit vectors, which prove
-the floor and fusion mechanics, not the threshold values. The `halfvec` recall-loss assumption is likewise unmeasured.
+The tests use hand-built orthogonal unit vectors, which prove the floor and fusion mechanics, not the threshold values. The `halfvec` recall-loss assumption is likewise unmeasured.

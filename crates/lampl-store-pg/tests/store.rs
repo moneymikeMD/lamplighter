@@ -8,6 +8,10 @@ use uuid::Uuid;
 
 async fn store() -> Option<PgStore> {
     let Ok(url) = std::env::var("LAMPL_TEST_DATABASE_URL") else {
+        assert!(
+            std::env::var("CI").as_deref() != Ok("true"),
+            "LAMPL_TEST_DATABASE_URL must be set when CI=true"
+        );
         eprintln!("LAMPL_TEST_DATABASE_URL unset; skipping");
         return None;
     };
@@ -216,9 +220,11 @@ async fn rrf_orders_by_fused_rank_on_a_hand_built_fixture() {
         .into_iter()
         .map(|h| h.memory.id)
         .collect();
-    assert_eq!(ids[0], both.id, "ranked first by text and second by vector");
-    assert_eq!(ids.len(), 3);
-    assert!(ids.contains(&text_only.id) && ids.contains(&vec_only.id));
+    assert_eq!(
+        ids,
+        vec![both.id, text_only.id, vec_only.id],
+        "fused order: both arms first, then the text-ranked, then the vector-only"
+    );
 }
 
 #[tokio::test]
@@ -226,4 +232,30 @@ async fn wrong_dimension_is_rejected() {
     let Some(s) = store().await else { return };
     let r = s.store(new(&project(), "t", "b", Some(vec![0.0; 3]))).await;
     assert!(r.is_err());
+}
+
+#[tokio::test]
+async fn connect_tolerates_a_schema_newer_than_this_build() {
+    let Ok(url) = std::env::var("LAMPL_TEST_DATABASE_URL") else {
+        assert!(
+            std::env::var("CI").as_deref() != Ok("true"),
+            "LAMPL_TEST_DATABASE_URL must be set when CI=true"
+        );
+        return;
+    };
+    PgStore::connect(&url).await.unwrap();
+    let pool = sqlx::PgPool::connect(&url).await.unwrap();
+    sqlx::query(
+        "INSERT INTO _sqlx_migrations (version, description, success, checksum, execution_time) \
+         VALUES (999, 'from a newer build', true, '\\x00', 0) ON CONFLICT DO NOTHING",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let reconnect = PgStore::connect(&url).await;
+    sqlx::query("DELETE FROM _sqlx_migrations WHERE version = 999")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(reconnect.is_ok(), "{:?}", reconnect.err());
 }

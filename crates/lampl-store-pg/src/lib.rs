@@ -106,10 +106,12 @@ fn check_dim(vector: &[f32]) -> Result<(), StoreError> {
 }
 
 impl PgStore {
-    /// Connects and applies pending migrations. Migrations are expand-contract so a client one minor behind keeps working.
+    /// Connects and applies pending migrations. Migrations are expand-contract and applied versions this build does not know are ignored, so a client one minor behind keeps working.
     pub async fn connect(url: &str) -> Result<Self, StoreError> {
         let pool = PgPoolOptions::new().max_connections(8).connect(url).await?;
-        sqlx::migrate!("./migrations").run(&pool).await?;
+        let mut migrator = sqlx::migrate!("./migrations");
+        migrator.set_ignore_missing(true);
+        migrator.run(&pool).await?;
         Ok(PgStore { pool })
     }
 
