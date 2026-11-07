@@ -113,6 +113,12 @@ pub(crate) async fn health(State(state): State<Arc<AppState>>) -> Response {
         "schema_version": schema_version,
         "embed_mode": state.embed_mode.as_str(),
         "embed_model": state.embedder.model_id(),
+        "embed_digest": digest,
+        "store": {
+            "host": state.store.pool().connect_options().get_host(),
+            "port": state.store.pool().connect_options().get_port(),
+            "database": state.store.pool().connect_options().get_database(),
+        },
         "embedder_available": embedder_ok,
         "embedder_error": if embedder_ok { None } else { state.embed_status.error() },
         "memory_count": total,

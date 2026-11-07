@@ -38,6 +38,12 @@ pub fn default_cache_dir() -> PathBuf {
         .join("models")
 }
 
+/// True when every model file is already in `cfg.cache_dir`; never touches the network.
+pub fn model_cached(cfg: &LocalConfig) -> bool {
+    let cache = Cache::new(cfg.cache_dir.clone()).repo(Repo::model(cfg.repo_id.clone()));
+    FILES.iter().all(|f| cache.get(f).is_some())
+}
+
 /// Downloads the model files from Hugging Face into `cfg.cache_dir`. This is the only network call in the crate's local path; hooks must never call it.
 pub fn prepare(cfg: &LocalConfig) -> Result<(), EmbedError> {
     let api = ApiBuilder::new()

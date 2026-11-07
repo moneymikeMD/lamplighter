@@ -1,0 +1,26 @@
+# memorygraph -> lamplighter. Data, not code: edit here and in docs/migrating-from-memorygraph.md together.
+# The original memorygraph type is also kept as a `memorygraph:<type>` tag on each imported memory.
+
+[types]
+problem = "problem"
+error = "problem"
+solution = "fix"
+fix = "fix"
+code_pattern = "procedure"
+workflow = "procedure"
+command = "procedure"
+general = "fact"
+conversation = "fact"
+technology = "fact"
+project = "fact"
+task = "fact"
+file_context = "fact"
+
+# A link type maps to itself or to "dropped" (counted in the import report, never written).
+[links]
+SOLVES = "SOLVES"
+CAUSES = "CAUSES"
+CONTRADICTS = "CONTRADICTS"
+RELATED_TO = "dropped"
+SIMILAR_TO = "dropped"
+BLOCKS = "dropped"

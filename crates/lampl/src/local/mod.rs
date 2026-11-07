@@ -2,10 +2,9 @@
 
 //! Embedded local mode. A store is created only by `lampl init --local`; a client configured for a server never falls back to it.
 
-mod config;
+pub(crate) mod config;
 
 use std::path::Path;
-use std::time::Duration;
 
 use clap::Args as ClapArgs;
 use lampl_core::{Embedding, MemoryType, NewMemory};
@@ -19,9 +18,12 @@ pub(crate) struct InitArgs {
     /// Create an embedded SQLite store on this machine and record `mode = local`
     #[arg(long, conflicts_with = "server")]
     local: bool,
-    /// Record `mode = server` for the given base URL
+    /// Record `mode = server` for the given base URL; repeat for fallback URLs tried in order
     #[arg(long, value_name = "URL")]
-    server: Option<String>,
+    server: Vec<String>,
+    /// With --server: file holding the API key (otherwise $LAMPL_API_KEY is used)
+    #[arg(long, value_name = "PATH", requires = "server")]
+    api_key_file: Option<std::path::PathBuf>,
     /// With --local: download the embedding model now (the only network step)
     #[arg(long, requires = "local")]
     prepare: bool,
@@ -30,32 +32,45 @@ pub(crate) struct InitArgs {
 #[derive(ClapArgs)]
 pub(crate) struct StoreArgs {
     #[arg(long)]
-    title: String,
+    pub(crate) title: String,
     #[arg(long)]
-    body: String,
+    pub(crate) body: String,
     #[arg(long = "type", default_value = "fact")]
-    memory_type: String,
+    pub(crate) memory_type: String,
     #[arg(long, value_delimiter = ',')]
-    tags: Vec<String>,
+    pub(crate) tags: Vec<String>,
     #[arg(long, default_value = "default")]
-    project: String,
+    pub(crate) project: String,
     #[arg(long, default_value_t = 0.5)]
-    importance: f32,
+    pub(crate) importance: f32,
     /// Skip embedding; the memory is found by full text only
     #[arg(long)]
-    no_embed: bool,
+    pub(crate) no_embed: bool,
 }
 
 #[derive(ClapArgs)]
 pub(crate) struct RecallArgs {
-    query: String,
+    #[arg(required_unless_present = "query_flag", conflicts_with = "query_flag")]
+    query: Option<String>,
+    /// The query, as a flag
+    #[arg(long = "query", value_name = "TEXT")]
+    query_flag: Option<String>,
     #[arg(long)]
-    project: Option<String>,
+    pub(crate) project: Option<String>,
     #[arg(long, default_value_t = 10)]
-    limit: usize,
+    pub(crate) limit: usize,
     /// Skip embedding; recall by full text only
     #[arg(long)]
-    no_embed: bool,
+    pub(crate) no_embed: bool,
+}
+
+impl RecallArgs {
+    pub(crate) fn text(&self) -> &str {
+        self.query
+            .as_deref()
+            .or(self.query_flag.as_deref())
+            .unwrap_or_default()
+    }
 }
 
 pub(crate) fn init(args: InitArgs) -> Result<(), String> {
@@ -65,14 +80,24 @@ pub(crate) fn init(args: InitArgs) -> Result<(), String> {
         Err(e) if e.starts_with("not configured") => None,
         Err(e) => return Err(e),
     };
-    if let Some(url) = args.server {
+    if let Some((url, rest)) = args.server.split_first() {
         if matches!(existing, Some(Config::Local { .. })) {
             return Err(format!(
                 "{} is already configured for local mode; remove it to switch",
                 path.display()
             ));
         }
-        config::save(&path, &Config::Server { url: url.clone() })?;
+        config::save(
+            &path,
+            &Config::Server {
+                url: url.trim_end_matches('/').to_owned(),
+                fallback_urls: rest
+                    .iter()
+                    .map(|u| u.trim_end_matches('/').to_owned())
+                    .collect(),
+                api_key_file: args.api_key_file,
+            },
+        )?;
         println!("mode = server ({url}); config at {}", path.display());
         return Ok(());
     }
@@ -118,12 +143,7 @@ pub(crate) fn init(args: InitArgs) -> Result<(), String> {
 fn open_local() -> Result<SqliteStore, String> {
     match config::load()? {
         Config::Local { db_path } => open_existing(&db_path),
-        Config::Server { url } => {
-            probe_server(&url)?;
-            Err(format!(
-                "server mode ({url}) is reachable but this build has no server client yet"
-            ))
-        }
+        Config::Server { .. } => Err("configured for a server, not local mode".to_owned()),
     }
 }
 
@@ -135,18 +155,6 @@ fn open_existing(db_path: &Path) -> Result<SqliteStore, String> {
         ));
     }
     SqliteStore::open(db_path).map_err(|e| e.to_string())
-}
-
-fn probe_server(url: &str) -> Result<(), String> {
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .timeout_global(Some(Duration::from_secs(5)))
-        .build()
-        .into();
-    agent
-        .get(format!("{}/health", url.trim_end_matches('/')))
-        .call()
-        .map(|_| ())
-        .map_err(|e| format!("server {url} is unreachable ({e}); not falling back to local mode"))
 }
 
 fn embed(text: &str) -> Result<Embedding, String> {
@@ -190,13 +198,13 @@ pub(crate) fn store(args: StoreArgs) -> Result<(), String> {
     Ok(())
 }
 
-pub(crate) fn recall(args: RecallArgs) -> Result<(), String> {
+pub(crate) fn recall(args: &RecallArgs) -> Result<(), String> {
     let db = open_local()?;
-    let mut q = RecallQuery::new(&args.query);
-    q.project = args.project;
+    let mut q = RecallQuery::new(args.text());
+    q.project.clone_from(&args.project);
     q.limit = args.limit;
     if !args.no_embed {
-        q.embedding = Some(embed(&args.query)?.vector);
+        q.embedding = Some(embed(args.text())?.vector);
     }
     for hit in db.recall(&q).map_err(|e| e.to_string())? {
         let line = serde_json::json!({

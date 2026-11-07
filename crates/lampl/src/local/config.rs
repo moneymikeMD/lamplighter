@@ -9,8 +9,16 @@ pub(crate) const DB_FILE: &str = "lampl.db";
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "mode", rename_all = "lowercase")]
 pub(crate) enum Config {
-    Local { db_path: PathBuf },
-    Server { url: String },
+    Local {
+        db_path: PathBuf,
+    },
+    Server {
+        url: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        fallback_urls: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        api_key_file: Option<PathBuf>,
+    },
 }
 
 pub(crate) fn config_dir() -> Result<PathBuf, String> {

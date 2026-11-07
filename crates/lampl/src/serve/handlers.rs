@@ -10,14 +10,15 @@ use axum::response::{IntoResponse, Response};
 use chrono::{DateTime, Utc};
 use lampl_core::{Embedding, Link, LinkType, Memory, MemoryType, NewMemory};
 use lampl_store_pg::{Direction, RecallQuery};
+use pgvector::HalfVector;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use sqlx::error::DatabaseError;
 use uuid::Uuid;
 
-use super::AppState;
 use super::error::ApiError;
 use super::worker::embed_texts;
+use super::{API_VERSION, AppState};
 
 const PAGE: i64 = 500;
 const MAX_LIMIT: usize = 100;
@@ -292,62 +293,123 @@ pub(crate) async fn related(
     Ok(Json(out))
 }
 
+const EXPORT_FORMAT: &str = "lampl-export";
+const EXPORT_FORMAT_VERSION: u32 = 1;
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Header {
+    format: String,
+    format_version: u32,
+    api_version: u32,
+    embed_model: String,
+    embed_digest: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct End {
+    memories: u64,
+    links: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+struct MemoryLine {
+    #[serde(flatten)]
+    #[sqlx(flatten)]
+    memory: MemoryDto,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    vector: Option<Vec<f32>>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 enum Line {
-    Memory(MemoryDto),
+    Header(Header),
+    Memory(MemoryLine),
     Link(LinkDto),
+    End(End),
 }
 
 enum Phase {
-    Memories(Option<Uuid>),
-    Links,
+    Header,
+    Memories { after: Option<Uuid>, count: u64 },
+    Links { memories: u64 },
+    End { memories: u64, links: u64 },
     Done,
 }
 
-async fn next_chunk(
-    pool: &PgPool,
-    project: Option<&str>,
-    phase: Phase,
-) -> Result<Option<(Bytes, Phase)>, sqlx::Error> {
+struct ExportCtx {
+    pool: PgPool,
+    project: Option<String>,
+    vectors: bool,
+    model: String,
+    digest: String,
+}
+
+async fn next_chunk(ctx: &ExportCtx, phase: Phase) -> Result<Option<(Bytes, Phase)>, sqlx::Error> {
     match phase {
-        Phase::Memories(after) => {
-            let rows: Vec<MemoryDto> = sqlx::query_as(
-                "SELECT id, memory_type, title, body, tags, project, importance, created_at, updated_at, embedding_model, embedding_digest \
+        Phase::Header => {
+            let line = Line::Header(Header {
+                format: EXPORT_FORMAT.to_owned(),
+                format_version: EXPORT_FORMAT_VERSION,
+                api_version: API_VERSION,
+                embed_model: ctx.model.clone(),
+                embed_digest: ctx.digest.clone(),
+            });
+            Ok(Some((
+                ndjson(std::iter::once(line)),
+                Phase::Memories {
+                    after: None,
+                    count: 0,
+                },
+            )))
+        }
+        Phase::Memories { after, count } => {
+            let rows: Vec<MemoryLine> = sqlx::query_as(
+                "SELECT id, memory_type, title, body, tags, project, importance, created_at, updated_at, embedding_model, embedding_digest, \
+                 CASE WHEN $4 THEN (embedding::vector)::real[] END AS vector \
                  FROM memories WHERE ($1::text IS NULL OR project = $1) AND ($2::uuid IS NULL OR id > $2) ORDER BY id LIMIT $3",
             )
-            .bind(project)
+            .bind(ctx.project.as_deref())
             .bind(after)
             .bind(PAGE)
-            .fetch_all(pool)
+            .bind(ctx.vectors)
+            .fetch_all(&ctx.pool)
             .await?;
-            let Some(last) = rows.last().map(|m| m.id) else {
-                return Box::pin(next_chunk(pool, project, Phase::Links)).await;
+            let Some(last) = rows.last().map(|m| m.memory.id) else {
+                return Box::pin(next_chunk(ctx, Phase::Links { memories: count })).await;
             };
+            let count = count + rows.len() as u64;
             let next = if i64::try_from(rows.len()).unwrap_or(0) < PAGE {
-                Phase::Links
+                Phase::Links { memories: count }
             } else {
-                Phase::Memories(Some(last))
+                Phase::Memories {
+                    after: Some(last),
+                    count,
+                }
             };
             Ok(Some((ndjson(rows.into_iter().map(Line::Memory)), next)))
         }
-        Phase::Links => {
+        Phase::Links { memories } => {
             let rows: Vec<LinkDto> = sqlx::query_as(
                 "SELECT from_id, to_id, link_type, strength, created_at FROM links \
-                 WHERE $1::text IS NULL OR from_id IN (SELECT id FROM memories WHERE project = $1) \
+                 WHERE $1::text IS NULL OR (from_id IN (SELECT id FROM memories WHERE project = $1) \
+                   AND to_id IN (SELECT id FROM memories WHERE project = $1)) \
                  ORDER BY created_at, from_id, to_id, link_type",
             )
-            .bind(project)
-            .fetch_all(pool)
+            .bind(ctx.project.as_deref())
+            .fetch_all(&ctx.pool)
             .await?;
+            let links = rows.len() as u64;
+            let next = Phase::End { memories, links };
             if rows.is_empty() {
-                return Ok(None);
+                return Box::pin(next_chunk(ctx, next)).await;
             }
-            Ok(Some((
-                ndjson(rows.into_iter().map(Line::Link)),
-                Phase::Done,
-            )))
+            Ok(Some((ndjson(rows.into_iter().map(Line::Link)), next)))
         }
+        Phase::End { memories, links } => Ok(Some((
+            ndjson(std::iter::once(Line::End(End { memories, links }))),
+            Phase::Done,
+        ))),
         Phase::Done => Ok(None),
     }
 }
@@ -365,18 +427,29 @@ fn ndjson(lines: impl Iterator<Item = Line>) -> Bytes {
 #[derive(Debug, Deserialize)]
 pub(crate) struct ExportParams {
     project: Option<String>,
+    #[serde(default = "default_true")]
+    vectors: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 pub(crate) async fn export(
     State(state): State<Arc<AppState>>,
     Query(p): Query<ExportParams>,
 ) -> Response {
-    let pool = state.store.pool().clone();
-    let stream = futures_util::stream::unfold(Phase::Memories(None), move |phase| {
-        let pool = pool.clone();
-        let project = p.project.clone();
+    let ctx = Arc::new(ExportCtx {
+        pool: state.store.pool().clone(),
+        project: p.project,
+        vectors: p.vectors,
+        model: state.embedder.model_id().to_owned(),
+        digest: state.embedder.model_digest().to_owned(),
+    });
+    let stream = futures_util::stream::unfold(Phase::Header, move |phase| {
+        let ctx = Arc::clone(&ctx);
         async move {
-            match next_chunk(&pool, project.as_deref(), phase).await {
+            match next_chunk(&ctx, phase).await {
                 Ok(Some((bytes, next))) => Some((Ok(bytes), next)),
                 Ok(None) => None,
                 Err(e) => {
@@ -416,10 +489,22 @@ pub(crate) async fn import(
         let line: Line = serde_json::from_str(raw)
             .map_err(|e| ApiError::bad_request(format!("line {}: {e}", i + 1)))?;
         match line {
+            Line::Header(_) | Line::End(_) => {}
             Line::Memory(m) => {
-                parse_type(&m.memory_type).map_err(|e| {
+                parse_type(&m.memory.memory_type).map_err(|e| {
                     ApiError::bad_request(format!("line {}: {}", i + 1, e.message()))
                 })?;
+                if let Some(v) = &m.vector
+                    && (v.len() != lampl_core::EMBEDDING_DIM
+                        || m.memory.embedding_model.is_none()
+                        || m.memory.embedding_digest.is_none())
+                {
+                    return Err(ApiError::bad_request(format!(
+                        "line {}: a vector needs {} values plus embedding_model and embedding_digest",
+                        i + 1,
+                        lampl_core::EMBEDDING_DIM
+                    )));
+                }
                 memories.push(m);
             }
             Line::Link(l) => {
@@ -437,10 +522,17 @@ pub(crate) async fn import(
         links_skipped: 0,
     };
     let mut tx = state.store.pool().begin().await?;
-    for m in &memories {
+    for line in &memories {
+        let m = &line.memory;
+        let vector = line.vector.as_deref().map(HalfVector::from_f32_slice);
+        let (model, digest) = if vector.is_some() {
+            (m.embedding_model.as_deref(), m.embedding_digest.as_deref())
+        } else {
+            (None, None)
+        };
         let n = sqlx::query(
-            "INSERT INTO memories (id, memory_type, title, body, tags, project, importance, created_at, updated_at) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (id) DO NOTHING",
+            "INSERT INTO memories (id, memory_type, title, body, tags, project, importance, created_at, updated_at, embedding, embedding_model, embedding_digest) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT (id) DO NOTHING",
         )
         .bind(m.id)
         .bind(&m.memory_type)
@@ -451,6 +543,9 @@ pub(crate) async fn import(
         .bind(m.importance.clamp(0.0, 1.0))
         .bind(m.created_at)
         .bind(m.updated_at)
+        .bind(vector)
+        .bind(model)
+        .bind(digest)
         .execute(&mut *tx)
         .await?
         .rows_affected();
