@@ -39,6 +39,9 @@ impl Embedder for FakeEmbedder {
         if self.fail.load(Ordering::Relaxed) {
             return Err(EmbedError::Endpoint("fake embedder is down".to_owned()));
         }
+        if texts.iter().any(|t| t.contains("POISON")) {
+            return Err(EmbedError::Embed("rejects this text".to_owned()));
+        }
         Ok(texts
             .iter()
             .map(|t| {
@@ -335,6 +338,65 @@ async fn pg_health_reports_degraded_when_the_embedder_fails_and_recovers() {
     .await
     .json();
     assert_eq!(recall["mode"], "hybrid");
+    db.drop_db().await;
+}
+
+#[tokio::test]
+async fn pg_health_notices_an_embedder_that_goes_down_after_a_good_probe() {
+    let Some(db) = TestDb::create().await else {
+        return;
+    };
+    let embedder = FakeEmbedder::new(false);
+    let h = harness(&db, embedder.clone()).await;
+    probe(&h.state).await;
+    let up = call(&h.app, Method::GET, "/health", Some(&h.key), None)
+        .await
+        .json();
+    assert_eq!(up["degraded"], false);
+
+    embedder.fail.store(true, Ordering::Relaxed);
+    tokio::time::sleep(std::time::Duration::from_millis(700)).await;
+    let down = call(&h.app, Method::GET, "/health", Some(&h.key), None)
+        .await
+        .json();
+    assert_eq!(
+        down["degraded"], true,
+        "no stale ok after the embedder fails"
+    );
+    assert_eq!(down["embedder_available"], false);
+    db.drop_db().await;
+}
+
+#[tokio::test]
+async fn pg_a_row_the_embedder_rejects_does_not_block_later_rows() {
+    let Some(db) = TestDb::create().await else {
+        return;
+    };
+    let h = harness(&db, FakeEmbedder::new(false)).await;
+    probe(&h.state).await;
+    let k = Some(h.key.as_str());
+    for (t, b) in [
+        ("poison", "POISON text"),
+        ("two", "dos"),
+        ("three", "tres"),
+        ("four", "cuatro"),
+    ] {
+        let r = call(&h.app, Method::POST, "/v1/memories", k, Some(memory(t, b))).await;
+        assert_eq!(r.status, StatusCode::CREATED);
+    }
+    assert_eq!(embed_pending(&h.state).await.unwrap(), 3);
+    assert_eq!(
+        embed_pending(&h.state).await.unwrap(),
+        0,
+        "the poison row is not retried every sweep"
+    );
+
+    let health = call(&h.app, Method::GET, "/health", k, None).await.json();
+    assert_eq!(health["memory_count"], 4);
+    assert_eq!(health["embedded_count"], 3);
+    assert_eq!(health["embed_failed_rows"], 1);
+    assert_eq!(health["degraded"], true);
+    assert_eq!(health["embedder_available"], true);
     db.drop_db().await;
 }
 

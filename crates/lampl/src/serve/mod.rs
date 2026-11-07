@@ -26,7 +26,7 @@ use lampl_store_pg::PgStore;
 
 pub use auth::{KeyError, KeyStore, add_key, generate_key, hash_key, list_keys, revoke_key};
 pub use health::EmbedStatus;
-pub use worker::{WorkerError, embed_pending, probe};
+pub use worker::{WorkerError, embed_pending, probe, probe_bounded};
 
 use error::ApiError;
 
@@ -60,6 +60,7 @@ pub struct AppState {
     pub(crate) keys: KeyStore,
     pub(crate) embed_status: EmbedStatus,
     pub(crate) min_coverage: f64,
+    pub(crate) failed: std::sync::Mutex<std::collections::HashSet<uuid::Uuid>>,
 }
 
 impl std::fmt::Debug for AppState {
@@ -86,7 +87,12 @@ impl AppState {
             keys,
             embed_status: EmbedStatus::new(),
             min_coverage,
+            failed: std::sync::Mutex::default(),
         })
+    }
+
+    pub(crate) fn failed_rows(&self) -> usize {
+        self.failed.lock().map_or(0, |f| f.len())
     }
 }
 

@@ -56,12 +56,13 @@ Open, no details: `{"status": "alive"}`. Process liveness only; it proves nothin
   "embedder_error": null,
   "memory_count": 0,
   "embedded_count": 0,
+  "embed_failed_rows": 0,
   "vector_coverage": 1.0,
   "min_coverage": 0.95
 }
 ```
 
-`status` is `ok` only when `degraded` is false. `degraded` is true when the last embedder call failed (recall is then full-text only) or `vector_coverage` is below `min_coverage`. `vector_coverage` is rows embedded by the current model over all rows, and is `1.0` for an empty store, where `memory_count: 0` says so explicitly. `503` with `status: "unavailable"` when the database cannot be queried. Monitors need a key and should assert `degraded == false` and the coverage they expect, not just HTTP 200.
+`status` is `ok` only when `degraded` is false. `/health` probes the embedder itself (a recorded outcome younger than 500 ms is reused; a probe that hangs counts as failed after 5 s), so it cannot report a stale ok. `embed_failed_rows` counts rows the embedder rejected; they are skipped, retried every ten minutes, and keep the store degraded. `degraded` is true when the embedder probe failed (recall is then full-text only) or `vector_coverage` is below `min_coverage`. `vector_coverage` is rows embedded by the current model over all rows, and is `1.0` for an empty store, where `memory_count: 0` says so explicitly. `503` with `status: "unavailable"` when the database cannot be queried. Monitors need a key and should assert `degraded == false` and the coverage they expect, not just HTTP 200.
 
 ### `POST /v1/memories`
 
@@ -97,4 +98,4 @@ Body: the NDJSON produced by export (up to 256 MiB). Atomic: any bad line or a l
 
 ## Background embedding
 
-A tokio task claims rows with no vector, or a vector from a different model digest, using `SELECT ... FOR UPDATE SKIP LOCKED` in batches of 16, embeds them with the configured embedder and writes the vectors. It sweeps every `--embed-interval-secs`, replacing memorygraph's hourly reindex timer. While idle it probes the embedder every 60 s (every sweep while unhealthy) so `/health` tracks reality.
+A tokio task claims rows with no vector, or a vector from a different model digest, using `SELECT ... FOR UPDATE SKIP LOCKED` in batches of 16, embeds them (if a batch fails while the embedder is otherwise healthy, rows are retried one by one and only the rejected rows are skipped) with the configured embedder and writes the vectors. It sweeps every `--embed-interval-secs`, replacing memorygraph's hourly reindex timer. While idle it probes the embedder every 60 s (every sweep while unhealthy) so `/health` tracks reality.
