@@ -39,8 +39,14 @@ fn print(v: &Value) {
 }
 
 pub(crate) fn store(args: local::StoreArgs) -> Result<(), String> {
+    print(&store_value(args)?);
+    Ok(())
+}
+
+pub(crate) fn store_value(args: local::StoreArgs) -> Result<Value, String> {
+    let memory_type: MemoryType = args.memory_type.parse().map_err(|e| format!("{e}"))?;
     let Some(settings) = server_settings()? else {
-        return local::store(args);
+        return local::store_value(args);
     };
     let client = Client::connect(&settings)?;
     if args.no_embed {
@@ -48,8 +54,7 @@ pub(crate) fn store(args: local::StoreArgs) -> Result<(), String> {
             "--no-embed applies to local mode; the server embeds in the background".to_owned(),
         );
     }
-    let memory_type: MemoryType = args.memory_type.parse().map_err(|e| format!("{e}"))?;
-    print(&client.post(
+    client.post(
         "/v1/memories",
         &json!({
             "memory_type": memory_type.as_str(),
@@ -59,13 +64,31 @@ pub(crate) fn store(args: local::StoreArgs) -> Result<(), String> {
             "project": args.project,
             "importance": args.importance,
         }),
-    )?);
-    Ok(())
+    )
 }
 
 pub(crate) fn recall(args: &local::RecallArgs) -> Result<(), String> {
+    let out = recall_hits(args)?;
+    if let Some(w) = out.warning {
+        eprintln!("lampl: warning: {w}");
+    }
+    for hit in &out.hits {
+        print(hit);
+    }
+    Ok(())
+}
+
+pub(crate) struct RecallOutput {
+    pub(crate) hits: Vec<Value>,
+    pub(crate) warning: Option<&'static str>,
+}
+
+pub(crate) fn recall_hits(args: &local::RecallArgs) -> Result<RecallOutput, String> {
     let Some(settings) = server_settings()? else {
-        return local::recall(args);
+        return Ok(RecallOutput {
+            hits: local::recall_hits(args)?,
+            warning: None,
+        });
     };
     let client = Client::connect(&settings)?;
     let mut body = json!({"query": args.text(), "limit": args.limit});
@@ -73,15 +96,11 @@ pub(crate) fn recall(args: &local::RecallArgs) -> Result<(), String> {
         body["project"] = json!(p);
     }
     let out = client.post("/v1/recall", &body)?;
-    if out["mode"] == "full-text" {
-        eprintln!(
-            "lampl: warning: the server's embedder is unavailable; this recall is full-text only"
-        );
-    }
-    for hit in out["hits"].as_array().into_iter().flatten() {
-        print(hit);
-    }
-    Ok(())
+    Ok(RecallOutput {
+        hits: out["hits"].as_array().cloned().unwrap_or_default(),
+        warning: (out["mode"] == "full-text")
+            .then_some("the server's embedder is unavailable; this recall is full-text only"),
+    })
 }
 
 #[derive(ClapArgs)]
@@ -90,8 +109,12 @@ pub(crate) struct GetArgs {
 }
 
 pub(crate) fn get(args: &GetArgs) -> Result<(), String> {
-    print(&server("get")?.get(&format!("/v1/memories/{}", args.id))?);
+    print(&get_value(args.id)?);
     Ok(())
+}
+
+pub(crate) fn get_value(id: Uuid) -> Result<Value, String> {
+    server("get")?.get(&format!("/v1/memories/{id}"))
 }
 
 #[derive(ClapArgs)]
@@ -105,17 +128,31 @@ pub(crate) struct LinkArgs {
 }
 
 pub(crate) fn link(args: &LinkArgs) -> Result<(), String> {
-    let link_type: LinkType = args.link_type.parse().map_err(|e| format!("{e}"))?;
-    print(&server("link")?.post(
-        "/v1/links",
-        &json!({
-            "from_id": args.from,
-            "to_id": args.to,
-            "link_type": link_type.as_str(),
-            "strength": args.strength,
-        }),
+    print(&link_value(
+        args.from,
+        args.to,
+        &args.link_type,
+        args.strength,
     )?);
     Ok(())
+}
+
+pub(crate) fn link_value(
+    from: Uuid,
+    to: Uuid,
+    link_type: &str,
+    strength: f32,
+) -> Result<Value, String> {
+    let link_type: LinkType = link_type.parse().map_err(|e| format!("{e}"))?;
+    server("link")?.post(
+        "/v1/links",
+        &json!({
+            "from_id": from,
+            "to_id": to,
+            "link_type": link_type.as_str(),
+            "strength": strength,
+        }),
+    )
 }
 
 #[derive(ClapArgs)]
@@ -124,9 +161,13 @@ pub(crate) struct RelatedArgs {
 }
 
 pub(crate) fn related(args: &RelatedArgs) -> Result<(), String> {
-    let out = server("related")?.get(&format!("/v1/memories/{}/related", args.id))?;
-    for item in out.as_array().into_iter().flatten() {
+    for item in &related_items(args.id)? {
         print(item);
     }
     Ok(())
+}
+
+pub(crate) fn related_items(id: Uuid) -> Result<Vec<Value>, String> {
+    let out = server("related")?.get(&format!("/v1/memories/{id}/related"))?;
+    Ok(out.as_array().cloned().unwrap_or_default())
 }
