@@ -282,7 +282,7 @@ fn a_server_speaking_another_api_version_is_refused() {
 }
 
 #[test]
-fn commands_work_and_a_wrong_key_fails_loudly() {
+fn pg_commands_work_and_a_wrong_key_fails_loudly() {
     let Some(l) = start(Fake {
         digest: "sha256:a",
         down: false,
@@ -314,7 +314,7 @@ fn commands_work_and_a_wrong_key_fails_loudly() {
 }
 
 #[test]
-fn doctor_reports_the_store_and_fails_when_degraded() {
+fn pg_doctor_reports_the_store_and_fails_when_degraded() {
     let Some(l) = start(Fake {
         digest: "sha256:a",
         down: false,
@@ -340,7 +340,7 @@ fn doctor_reports_the_store_and_fails_when_degraded() {
 }
 
 #[test]
-fn audit_finds_duplicates_untagged_and_skips_superseded() {
+fn pg_audit_finds_duplicates_untagged_and_skips_superseded() {
     let Some(l) = start(Fake {
         digest: "sha256:a",
         down: false,
@@ -392,7 +392,7 @@ fn audit_finds_duplicates_untagged_and_skips_superseded() {
 }
 
 #[test]
-fn export_to_a_fresh_database_then_import_gives_identical_recall() {
+fn pg_export_to_a_fresh_database_then_import_gives_identical_recall() {
     let Some(src) = start(Fake {
         digest: "sha256:a",
         down: false,
@@ -471,7 +471,7 @@ fn export_to_a_fresh_database_then_import_gives_identical_recall() {
 }
 
 #[test]
-fn import_refuses_a_model_mismatch_unless_reembed() {
+fn pg_import_refuses_a_model_mismatch_unless_reembed() {
     let Some(src) = start(Fake {
         digest: "sha256:a",
         down: false,
@@ -501,7 +501,7 @@ fn import_refuses_a_model_mismatch_unless_reembed() {
 }
 
 #[test]
-fn memorygraph_export_imports_idempotently_keeping_contradicts() {
+fn pg_memorygraph_export_imports_idempotently_keeping_contradicts() {
     let Some(l) = start(Fake {
         digest: "sha256:a",
         down: false,
@@ -546,7 +546,7 @@ fn memorygraph_export_imports_idempotently_keeping_contradicts() {
 }
 
 #[test]
-fn a_truncated_export_file_is_refused() {
+fn pg_a_truncated_export_file_is_refused() {
     let Some(l) = start(Fake {
         digest: "sha256:a",
         down: false,
@@ -570,7 +570,7 @@ fn a_truncated_export_file_is_refused() {
 }
 
 #[test]
-fn project_export_leaves_out_links_that_leave_the_project() {
+fn pg_project_export_leaves_out_links_that_leave_the_project() {
     let Some(l) = start(Fake {
         digest: "sha256:a",
         down: false,
@@ -641,7 +641,7 @@ INSERT INTO links (id, from_id, to_id, rel_type, strength, created_at, last_vali
 ";
 
 #[test]
-fn from_postgres_reads_memorygraphs_flat_schema_and_skips_invalidated_links() {
+fn pg_from_postgres_reads_memorygraphs_flat_schema_and_skips_invalidated_links() {
     let Some(l) = start(Fake {
         digest: "sha256:a",
         down: false,
