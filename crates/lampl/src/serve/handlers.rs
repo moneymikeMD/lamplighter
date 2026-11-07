@@ -191,6 +191,8 @@ pub(crate) struct RecallBody {
     query: String,
     project: Option<String>,
     limit: Option<usize>,
+    /// Past this the query embedding is abandoned and the recall is full-text only.
+    embed_timeout_ms: Option<u64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -214,9 +216,19 @@ pub(crate) async fn recall(
     let mut q = RecallQuery::new(b.query.clone());
     q.project = b.project;
     q.limit = b.limit.unwrap_or(10).clamp(1, MAX_LIMIT);
-    if state.embed_status.is_ok()
-        && let Ok(mut v) = embed_texts(&state, vec![b.query]).await
-    {
+    let embedded = if state.embed_status.is_ok() {
+        let embedding = embed_texts(&state, vec![b.query]);
+        match b.embed_timeout_ms {
+            Some(ms) => tokio::time::timeout(std::time::Duration::from_millis(ms), embedding)
+                .await
+                .ok()
+                .and_then(Result::ok),
+            None => embedding.await.ok(),
+        }
+    } else {
+        None
+    };
+    if let Some(mut v) = embedded {
         q.embedding = v.pop();
         q.embedding_digest = Some(state.embedder.model_digest().to_owned());
     }

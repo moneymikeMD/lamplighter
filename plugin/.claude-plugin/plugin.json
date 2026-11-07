@@ -1,0 +1,10 @@
+{
+  "name": "lamplighter",
+  "version": "0.1.0",
+  "description": "Agent memory for Claude Code: pushes relevant memories into the session, exposes lampl as MCP tools, and teaches when to store.",
+  "author": { "name": "Mike Garrett" },
+  "homepage": "https://github.com/moneymikeMD/lamplighter",
+  "repository": "https://github.com/moneymikeMD/lamplighter",
+  "license": "Apache-2.0",
+  "keywords": ["memory", "mcp", "hooks"]
+}

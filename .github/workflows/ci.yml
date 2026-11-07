@@ -73,3 +73,5 @@ jobs:
           sudo install -m 0755 lefthook /usr/local/bin/lefthook
           lefthook version
       - run: lefthook run pre-commit --all-files
+      - name: Plugin hook selftest
+        run: python3 plugin/hooks/selftest.py

@@ -62,6 +62,12 @@ pub(crate) struct RecallArgs {
     /// Skip embedding; recall by full text only
     #[arg(long)]
     pub(crate) no_embed: bool,
+    /// Print one `{"hits": [...], "warning": ...}` object; an empty recall is `{"hits": []}`
+    #[arg(long)]
+    pub(crate) json: bool,
+    /// Give up embedding the query after this many ms and recall by full text; env `LAMPL_EMBED_TIMEOUT_MS`
+    #[arg(long, value_name = "MS")]
+    pub(crate) embed_timeout_ms: Option<u64>,
 }
 
 impl RecallArgs {
@@ -72,7 +78,15 @@ impl RecallArgs {
             project,
             limit,
             no_embed: false,
+            json: false,
+            embed_timeout_ms: None,
         }
+    }
+
+    pub(crate) fn embed_timeout(&self) -> Option<std::time::Duration> {
+        self.embed_timeout_ms
+            .or_else(|| std::env::var("LAMPL_EMBED_TIMEOUT_MS").ok()?.parse().ok())
+            .map(std::time::Duration::from_millis)
     }
 
     pub(crate) fn text(&self) -> &str {
@@ -204,15 +218,34 @@ pub(crate) fn store_value(args: StoreArgs) -> Result<serde_json::Value, String> 
     serde_json::to_value(&memory).map_err(|e| e.to_string())
 }
 
-pub(crate) fn recall_hits(args: &RecallArgs) -> Result<Vec<serde_json::Value>, String> {
+pub(crate) const EMBED_TIMED_OUT: &str =
+    "embedding the query timed out; this recall is full-text only";
+
+pub(crate) fn recall_hits(
+    args: &RecallArgs,
+) -> Result<(Vec<serde_json::Value>, Option<&'static str>), String> {
     let db = open_local()?;
     let mut q = RecallQuery::new(args.text());
     q.project.clone_from(&args.project);
     q.limit = args.limit;
+    let mut warning = None;
     if !args.no_embed {
-        q.embedding = Some(embed(args.text())?.vector);
+        match args.embed_timeout() {
+            None => q.embedding = Some(embed(args.text())?.vector),
+            Some(limit) => {
+                let (tx, rx) = std::sync::mpsc::channel();
+                let text = args.text().to_owned();
+                std::thread::spawn(move || {
+                    let _ = tx.send(embed(&text).map(|e| e.vector));
+                });
+                match rx.recv_timeout(limit) {
+                    Ok(vector) => q.embedding = Some(vector?),
+                    Err(_) => warning = Some(EMBED_TIMED_OUT),
+                }
+            }
+        }
     }
-    Ok(db
+    let hits = db
         .recall(&q)
         .map_err(|e| e.to_string())?
         .into_iter()
@@ -224,5 +257,6 @@ pub(crate) fn recall_hits(args: &RecallArgs) -> Result<Vec<serde_json::Value>, S
                 "memory": hit.memory,
             })
         })
-        .collect())
+        .collect();
+    Ok((hits, warning))
 }

@@ -125,3 +125,13 @@ fn store_then_recall_round_trips_by_full_text() {
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.contains("backup window"), "{stdout}");
 }
+
+#[test]
+fn recall_json_prints_one_object_and_an_empty_recall_is_an_empty_hits_array() {
+    let d = tempfile::tempdir().unwrap();
+    assert!(lampl(d.path(), &["init", "--local"]).status.success());
+    let out = lampl(d.path(), &["recall", "--no-embed", "--json", "nothing"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v, serde_json::json!({"hits": [], "warning": null}));
+}

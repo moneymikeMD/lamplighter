@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "lampl": {
+      "command": "lampl",
+      "args": ["mcp"]
+    }
+  }
+}
