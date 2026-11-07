@@ -1,0 +1,44 @@
+name: bench-embed
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - crates/lampl-embed/**
+      - crates/lampl/src/cmd_bench_embed.rs
+      - docs/bench/embed/**
+      - .github/workflows/bench-embed.yml
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    name: bench-embed (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2.9.3
+      - uses: actions/cache@v6.1.0
+        with:
+          path: ~/.cache/lamplighter/models
+          key: qwen3-embedding-0.6b-v1
+      - run: cargo build --release -p lampl
+      - name: Runner CPU
+        run: |
+          lscpu | tee cpu.txt
+          nproc
+      - name: Bench
+        run: |
+          ./target/release/lampl bench-embed --texts docs/bench/embed/texts-47.jsonl --prepare | tee bench.txt
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: bench-${{ matrix.os }}
+          path: |
+            bench.txt
+            cpu.txt

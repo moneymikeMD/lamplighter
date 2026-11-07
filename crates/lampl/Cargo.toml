@@ -9,3 +9,6 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+lampl-embed = { path = "../lampl-embed" }
+serde_json.workspace = true
+clap.workspace = true
