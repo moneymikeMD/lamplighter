@@ -1,0 +1,51 @@
+# lamplighter
+
+> Agent memory as one binary. `lampl` stores an agent's decisions, root causes and gotchas, recalls them with hybrid full-text and vector search behind a calibrated relevance floor, and reaches the
+agent through Claude Code hooks, a CLI and an MCP server. Apache-2.0, Rust, no LLM key required. Modes: embedded SQLite, `lampl serve` on Postgres with pgvector, external Postgres, Docker.
+
+Memory types: fact, decision, problem, fix, procedure, gotcha. Link types: SUPERSEDES, SOLVES, CAUSES, CONTRADICTS. Embedded mode supports store and recall only; links, audit, export and import need a
+server. Recall may return nothing by design.
+
+## Start
+
+- [README](README.md): claims, install, quickstart, comparison
+- [Docs index](docs/README.md): every page
+- [Install](docs/install.md): shell installer, cargo, Docker, Claude Code plugin
+- [Quickstart](docs/quickstart.md): first memory, locally and against a server
+
+## Concepts and practice
+
+- [Concepts](docs/concepts.md): memory types, links, projects, tags, supersession
+- [Best practices](docs/best-practices.md): what to store, what not to, tagging, retiring stale memories
+- [Ranking](docs/ranking.md): fusion, the relevance floor and its calibration
+- [Embeddings](docs/embeddings.md): in-process Qwen3-Embedding-0.6B or an HTTP endpoint
+
+## Run modes
+
+- [Choosing a mode](docs/modes/README.md)
+- [Embedded SQLite](docs/modes/embedded-sqlite.md)
+- [lampl serve on Postgres](docs/modes/serve-postgres.md)
+- [External Postgres](docs/modes/external-postgres.md)
+- [Docker and compose](docs/modes/docker-compose.md)
+
+## Reference
+
+- [CLI](docs/cli.md)
+- [HTTP API](docs/api.md)
+- [Configuration and environment variables](docs/configuration.md)
+- [MCP tools](docs/mcp.md)
+- [Claude Code plugin](docs/plugin.md)
+- [Embedded store internals](docs/local-mode.md)
+
+## Evidence and operations
+
+- [Benchmarks](docs/benchmarks.md): measured results, methods, caveats; the full public LongMemEval run has not been done
+- [Troubleshooting and FAQ](docs/troubleshooting.md)
+- [Migrating from memorygraph](docs/migrating-from-memorygraph.md)
+- [Security](SECURITY.md)
+- [Contributing](CONTRIBUTING.md)
+
+## Optional
+
+- [Releasing](docs/releasing.md)
+- [pgrx experiment](docs/experiments/pgrx.md)
