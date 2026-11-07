@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
 HOOK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lamplighter-push.py")
 
@@ -17,6 +18,10 @@ case "$STUB_MODE" in
   empty) echo '{"hits":[],"warning":null}' ;;
   version) echo "lampl: API version mismatch: http://x speaks version 2, this client speaks 1; upgrade the older side" >&2; exit 1 ;;
   model) echo "lampl: embedding model not downloaded; run \\`lampl init --local --prepare\\` once, or pass --no-embed" >&2; exit 1 ;;
+  warn) sed 's/"warning": null/"warning": "the server'"'"'s embedder is unavailable; this recall is full-text only"/' "$STUB_HITS" ;;
+  warn_empty) echo '{"hits":[],"warning":"the server'"'"'s embedder is unavailable; this recall is full-text only"}' ;;
+  slowembed) sed 's/"warning": null/"warning": "embedding the query timed out; this recall is full-text only"/' "$STUB_HITS" ;;
+  modelcache) echo "lampl: model cache missing; run \\`lampl doctor --fetch-model\\`" >&2; exit 1 ;;
   garbage) echo 'not json' ;;
   slow) sleep 10 ;;
   *) echo "lampl: boom" >&2; exit 1 ;;
@@ -147,7 +152,7 @@ def main():
 
         rig.clear()
         code, out = rig.fire("model", prompt=prompt)
-        check("missing model is loud and points at doctor", out and "doctor --fetch-model" in out["systemMessage"],
+        check("missing model names the local remedy", out and "lampl init --local --prepare" in out["systemMessage"],
               str(out))
         check("hook never downloads the model", "doctor" not in open(rig.calls).read())
 
@@ -159,6 +164,51 @@ def main():
         code, out = rig.fire("hits", prompt="yet another question about retries and queues",
                              env={"LAMPL_PUSH_BREAKER": "0.001"}, session="s9")
         check("breaker closes after its window", out is not None)
+
+        rig.clear()
+        code, out = rig.fire("modelcache", prompt=prompt)
+        check("missing model cache names doctor --fetch-model", out and "doctor --fetch-model" in out["systemMessage"],
+              str(out))
+
+        rig.clear()
+        rig.fire("boom", prompt=prompt, session="A")
+        code, out = rig.fire("boom", prompt="another question about the embedding queue retries", session="B")
+        check("B1: session B gets its own notice while the breaker is open", out and "boom" in out["systemMessage"],
+              str(out))
+        check("B1: the open breaker did not call lampl again", rig.calls_made() == 1)
+        code, out = rig.fire("boom", prompt="a third question about the embedding queue retries", session="B")
+        check("B1: session B stays quiet after its one notice", out is None)
+
+        rig.clear()
+        code, out = rig.fire("warn", prompt=prompt)
+        check("B3: a degraded-recall warning is surfaced with the doctor remedy",
+              out and "lampl doctor" in out["systemMessage"] and "## Title 1" in context(out), str(out))
+        code, out = rig.fire("warn", prompt="a different question about the embedding queue backlog", session="s1")
+        check("B3: the warning is shown once per session", out is None or "systemMessage" not in out, str(out))
+        rig.clear()
+        code, out = rig.fire("warn_empty", prompt=prompt)
+        check("B3: the warning is surfaced even with no hits", out and "full-text only" in out["systemMessage"], str(out))
+        rig.clear()
+        code, out = rig.fire("slowembed", prompt=prompt)
+        check("B2: an embed timeout is reported as slow, not as a missing model",
+              out and "timed out" in out["systemMessage"] and "doctor" not in out["systemMessage"], str(out))
+        check("B2: no breaker after a degraded recall", not os.path.exists(os.path.join(rig.state, "breaker")))
+
+        rig.clear()
+        rig.fire("hits", prompt=prompt)
+        check("B2: hook passes the embed timeout to lampl", "--embed-timeout-ms 1500" in open(rig.calls).read())
+
+        rig.clear()
+        git = os.path.join(rig.bin, "git")
+        with open(git, "w") as fh:
+            fh.write("#!/bin/sh\nsleep 10\n")
+        os.chmod(git, 0o755)
+        started = time.monotonic()
+        code, out = rig.fire("hits", event="SessionStart", source="startup")
+        os.remove(git)
+        check("B5: slow git is bounded and still reaches lampl", out is not None and rig.calls_made() == 1
+              and time.monotonic() - started < 4, str(out))
+        check("B5: slow git does not trip the breaker", not os.path.exists(os.path.join(rig.state, "breaker")))
 
         rig.clear()
         code, out = rig.fire("garbage", prompt=prompt)

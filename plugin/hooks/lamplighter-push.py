@@ -20,7 +20,9 @@ BODY_CHARS = 1250
 QUERY_CHARS = 400
 DEFAULT_BUDGET = 3.0
 DEFAULT_BREAKER = 300.0
-RECALL_CAP = 1.5
+RECALL_CAP = 2.5
+EMBED_TIMEOUT_MS = 1500
+GIT_BUDGET = 0.8
 REAP_SECONDS = 0.5
 DEFAULT_SKIP_WORDS = 3
 
@@ -109,20 +111,21 @@ def run(argv, budget, cwd=None):
 
 
 def parse_hits(text):
-    """Return [{id, title, content}] from `lampl recall --json`, or None when the output is not that object."""
+    """Return ([{id, title, content}], warning) from `lampl recall --json`, or None when the output is not that object."""
     try:
         data = json.loads(text)
     except ValueError:
         return None
     if not isinstance(data, dict) or not isinstance(data.get("hits"), list):
         return None
+    warning = data.get("warning") if isinstance(data.get("warning"), str) else ""
     results = []
     for hit in data["hits"]:
         mem = hit.get("memory") if isinstance(hit, dict) else None
         if isinstance(mem, dict) and mem.get("id") and mem.get("title"):
             results.append({"id": str(mem["id"]), "title": str(mem["title"]),
                             "content": str(mem.get("body") or "")})
-    return results[:LIMIT]
+    return results[:LIMIT], warning
 
 
 def truncate(text, limit=BODY_CHARS):
@@ -155,9 +158,11 @@ def text_of(value):
     return ""
 
 
-def session_query(cwd):
+def session_query(cwd, deadline):
+    git_deadline = Deadline(min(GIT_BUDGET, deadline.left()))
+
     def git(*args):
-        status, out, _ = run(["git", "-C", cwd, *args], 1.0)
+        status, out, _ = run(["git", "-C", cwd, *args], git_deadline.left())
         return out.strip() if status == "ok" else ""
 
     url = git("remote", "get-url", "origin")
@@ -205,17 +210,23 @@ class State:
         if self.path and values:
             self._write("".join("%s %s\n" % (kind, v) for v in values), "a")
 
-    def breaker_open(self, window):
+    def breaker(self, window):
+        """Return the failure that opened the breaker as {kind, message}, or None when it is closed."""
+        path = os.path.join(self.dir, "breaker")
         try:
-            return time.time() - os.path.getmtime(os.path.join(self.dir, "breaker")) < window
-        except OSError:
-            return False
+            if time.time() - os.path.getmtime(path) >= window:
+                return None
+            with open(path) as fh:
+                info = json.load(fh)
+            return info if isinstance(info, dict) else {}
+        except (OSError, ValueError):
+            return {} if os.path.exists(path) else None
 
-    def trip(self):
+    def trip(self, kind, message):
         try:
             os.makedirs(self.dir, mode=0o700, exist_ok=True)
             with open(os.path.join(self.dir, "breaker"), "w") as fh:
-                fh.write("%d\n" % time.time())
+                json.dump({"kind": kind, "message": message}, fh)
         except OSError:
             pass
 
@@ -231,9 +242,9 @@ def log(record):
         pass
 
 
-def query_for(event, data, cwd):
+def query_for(event, data, cwd, deadline):
     if event == "SessionStart":
-        return session_query(cwd).strip()
+        return session_query(cwd, deadline).strip()
     if event == "UserPromptSubmit":
         return prompt_head(data)
     if event == "PostToolUseFailure":
@@ -242,6 +253,15 @@ def query_for(event, data, cwd):
         text = (text_of(data.get("error")) or text_of(data.get("tool_response"))).strip()
         return text[-QUERY_CHARS:].strip()
     return ""
+
+
+def remedy(text):
+    """Pick the fix lampl itself named; otherwise point at `lampl doctor`, which reports the server's embedder."""
+    if "init --local --prepare" in text:
+        return "Run `lampl init --local --prepare` once"
+    if "fetch-model" in text:
+        return "Run `lampl doctor --fetch-model` once"
+    return "Run `lampl doctor` to see the server's embedder"
 
 
 def classify(status, err):
@@ -255,9 +275,16 @@ def classify(status, err):
     if "api version mismatch" in low:
         return "version", "lamplighter: %s. Memory push is off until the client and server match." % first.removeprefix("lampl: ")
     if "model" in low and ("not downloaded" in low or "cache missing" in low or "fetch-model" in low):
-        return "model", "lamplighter: the embedding model is missing. Run `lampl doctor --fetch-model` once; memory push is off until then."
+        return "model", "lamplighter: the embedding model is missing. %s; memory push is off until then." % remedy(first)
     return "error", "lamplighter: recall failed (%s). Memory push is paused for a few minutes." % (
         first.removeprefix("lampl: ") or "no error text")
+
+
+def warning_notice(warning):
+    """Turn a recall warning (exit 0, hits present or not) into a (kind, message) notice."""
+    if "timed out" in warning:
+        return "slow", "lamplighter: embedding the query timed out, so this recall used full text only."
+    return "degraded", "lamplighter: %s. Hits are full-text only. %s." % (warning.rstrip("."), remedy(warning))
 
 
 def emit(event, context, notice):
@@ -288,32 +315,49 @@ def main():
     if skipped:
         log(skipped)
         return
-    if state.breaker_open(env_float("LAMPL_PUSH_BREAKER", DEFAULT_BREAKER)):
+    tripped = state.breaker(env_float("LAMPL_PUSH_BREAKER", DEFAULT_BREAKER))
+    if tripped is not None:
+        kind = tripped.get("kind")
         log({"event": event, "outcome": "breaker"})
+        if kind and tripped.get("message") and kind not in state.seen["n"]:
+            state.record("n", [kind])
+            emit(event, "", tripped["message"])
         return
-    query = query_for(event, data, cwd)
+    query = query_for(event, data, cwd, deadline)
     if not query:
         return
     digest = hashlib.sha256((event + ":" + query).encode("utf-8", "replace")).hexdigest()
     if event != "SessionStart" and digest in state.seen["q"]:
         log({"event": event, "outcome": "repeat"})
         return
-    status, out, err = run(["lampl", "recall", "--query", query, "--limit", str(LIMIT), "--json"],
-                           min(deadline.left(), env_float("LAMPL_PUSH_RECALL_CAP", RECALL_CAP)), cwd)
-    results = parse_hits(out) if status == "ok" else None
+    budget = min(deadline.left(), env_float("LAMPL_PUSH_RECALL_CAP", RECALL_CAP))
     record = {"event": event, "query_chars": len(query)}
-    if results is None:
+    if budget <= 0:
+        log(dict(record, outcome="budget"))
+        return
+    embed_ms = str(env_int("LAMPL_PUSH_EMBED_MS", EMBED_TIMEOUT_MS))
+    status, out, err = run(["lampl", "recall", "--query", query, "--limit", str(LIMIT), "--embed-timeout-ms",
+                            embed_ms, "--json"], budget, cwd)
+    parsed = parse_hits(out) if status == "ok" else None
+    if parsed is None:
         if status == "ok":
             status, err = "error", "unexpected output from `lampl recall --json`"
-        state.trip()
         kind, message = classify(status, err)
+        state.trip(kind, message)
         record.update(outcome=kind, seconds=round(time.monotonic() - started, 2))
         log(record)
         if kind not in state.seen["n"]:
             state.record("n", [kind])
             emit(event, "", message)
         return
+    results, warning = parsed
     state.record("q", [digest])
+    notice = ""
+    if warning:
+        wkind, wmessage = warning_notice(warning)
+        if wkind not in state.seen["n"]:
+            state.record("n", [wkind])
+            notice = wmessage
     fresh = [r for r in results if r["id"] not in state.seen["m"]]
     top, rest = fresh[:BODIES], fresh[BODIES:]
     record.update(ids=[r["id"] for r in results], new=[r["id"] for r in fresh], full_bodies=len(top),
@@ -321,12 +365,13 @@ def main():
     if not top:
         record["outcome"] = "nothing-new" if results else "empty"
         log(record)
+        emit(event, "", notice)
         return
     text = payload(top, rest)
     state.record("m", [r["id"] for r in top + rest])
     record.update(outcome="pushed", payload_chars=len(text))
     log(record)
-    emit(event, text, "")
+    emit(event, text, notice)
 
 
 if __name__ == "__main__":

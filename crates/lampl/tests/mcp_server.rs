@@ -201,7 +201,7 @@ fn stub_server() -> String {
             let mut body = vec![0; length];
             reader.read_exact(&mut body).unwrap();
             let reply = if request_line.contains("/v1/recall") {
-                json!({"mode":"full-text","hits":[{"memory":{"title":"seeded"},"score":1.0,"cosine":null,"coverage":1.0}]})
+                json!({"mode":"full-text","hits":[{"memory":{"title":format!("seeded {}", String::from_utf8_lossy(&body))},"score":1.0,"cosine":null,"coverage":1.0}]})
             } else if request_line.contains("/v1/memories") {
                 json!({"id":"00000000-0000-0000-0000-000000000009","title":"t"})
             } else {
@@ -241,8 +241,40 @@ fn recall_and_store_succeed_against_a_server_with_clean_json_rpc_stdout() {
     assert_ne!(recall["isError"], true, "{recall}");
     let payload: Value =
         serde_json::from_str(recall["content"][0]["text"].as_str().unwrap()).unwrap();
-    assert_eq!(payload["hits"][0]["memory"]["title"], "seeded");
+    assert!(
+        payload["hits"][0]["memory"]["title"]
+            .as_str()
+            .unwrap()
+            .starts_with("seeded ")
+    );
     assert!(payload["warning"].as_str().unwrap().contains("full-text"));
     let stored = &reply(&msgs, 2)["result"];
     assert_ne!(stored["isError"], true, "{stored}");
+}
+
+#[test]
+fn recall_passes_the_embed_timeout_to_the_server() {
+    let d = tempfile::tempdir().unwrap();
+    let url = stub_server();
+    let lampl = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_lampl"))
+            .args(args)
+            .env("LAMPL_CONFIG_DIR", d.path())
+            .env("LAMPL_DATA_DIR", d.path())
+            .env("LAMPL_API_KEY", "test-key")
+            .output()
+            .unwrap()
+    };
+    assert!(lampl(&["init", "--server", &url]).status.success());
+    let out = lampl(&["recall", "q", "--embed-timeout-ms", "1500", "--json"]);
+    assert!(out.status.success());
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert!(
+        v["hits"][0]["memory"]["title"]
+            .as_str()
+            .unwrap()
+            .contains("\"embed_timeout_ms\": 1500"),
+        "{v}"
+    );
+    assert!(v["warning"].as_str().unwrap().contains("full-text"));
 }

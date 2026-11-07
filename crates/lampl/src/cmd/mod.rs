@@ -89,13 +89,14 @@ pub(crate) struct RecallOutput {
 
 pub(crate) fn recall_hits(args: &local::RecallArgs) -> Result<RecallOutput, String> {
     let Some(settings) = server_settings()? else {
-        return Ok(RecallOutput {
-            hits: local::recall_hits(args)?,
-            warning: None,
-        });
+        let (hits, warning) = local::recall_hits(args)?;
+        return Ok(RecallOutput { hits, warning });
     };
     let client = Client::connect(&settings)?;
     let mut body = json!({"query": args.text(), "limit": args.limit});
+    if let Some(t) = args.embed_timeout() {
+        body["embed_timeout_ms"] = json!(u64::try_from(t.as_millis()).unwrap_or(u64::MAX));
+    }
     if let Some(p) = &args.project {
         body["project"] = json!(p);
     }
