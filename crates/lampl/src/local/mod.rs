@@ -1,0 +1,211 @@
+// SPDX-License-Identifier: Apache-2.0
+
+//! Embedded local mode. A store is created only by `lampl init --local`; a client configured for a server never falls back to it.
+
+mod config;
+
+use std::path::Path;
+use std::time::Duration;
+
+use clap::Args as ClapArgs;
+use lampl_core::{Embedding, MemoryType, NewMemory};
+use lampl_embed::{Embedder, LocalConfig, LocalEmbedder, prepare};
+use lampl_store_sqlite::{RecallQuery, SqliteStore};
+
+use config::Config;
+
+#[derive(ClapArgs)]
+pub(crate) struct InitArgs {
+    /// Create an embedded SQLite store on this machine and record `mode = local`
+    #[arg(long, conflicts_with = "server")]
+    local: bool,
+    /// Record `mode = server` for the given base URL
+    #[arg(long, value_name = "URL")]
+    server: Option<String>,
+    /// With --local: download the embedding model now (the only network step)
+    #[arg(long, requires = "local")]
+    prepare: bool,
+}
+
+#[derive(ClapArgs)]
+pub(crate) struct StoreArgs {
+    #[arg(long)]
+    title: String,
+    #[arg(long)]
+    body: String,
+    #[arg(long = "type", default_value = "fact")]
+    memory_type: String,
+    #[arg(long, value_delimiter = ',')]
+    tags: Vec<String>,
+    #[arg(long, default_value = "default")]
+    project: String,
+    #[arg(long, default_value_t = 0.5)]
+    importance: f32,
+    /// Skip embedding; the memory is found by full text only
+    #[arg(long)]
+    no_embed: bool,
+}
+
+#[derive(ClapArgs)]
+pub(crate) struct RecallArgs {
+    query: String,
+    #[arg(long)]
+    project: Option<String>,
+    #[arg(long, default_value_t = 10)]
+    limit: usize,
+    /// Skip embedding; recall by full text only
+    #[arg(long)]
+    no_embed: bool,
+}
+
+pub(crate) fn init(args: InitArgs) -> Result<(), String> {
+    let path = config::config_path()?;
+    let existing = match config::load() {
+        Ok(c) => Some(c),
+        Err(e) if e.starts_with("not configured") => None,
+        Err(e) => return Err(e),
+    };
+    if let Some(url) = args.server {
+        if matches!(existing, Some(Config::Local { .. })) {
+            return Err(format!(
+                "{} is already configured for local mode; remove it to switch",
+                path.display()
+            ));
+        }
+        config::save(&path, &Config::Server { url: url.clone() })?;
+        println!("mode = server ({url}); config at {}", path.display());
+        return Ok(());
+    }
+    if !args.local {
+        return Err("choose a mode: `lampl init --local` or `lampl init --server <URL>`".into());
+    }
+    if matches!(existing, Some(Config::Server { .. })) {
+        return Err(format!(
+            "{} is already configured for a server; remove it to switch to local mode",
+            path.display()
+        ));
+    }
+    let db_path = match existing {
+        Some(Config::Local { db_path }) => db_path,
+        _ => config::data_dir()?.join(config::DB_FILE),
+    };
+    if let Some(dir) = db_path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("creating {}: {e}", dir.display()))?;
+    }
+    SqliteStore::open(&db_path).map_err(|e| e.to_string())?;
+    config::save(
+        &path,
+        &Config::Local {
+            db_path: db_path.clone(),
+        },
+    )?;
+    println!(
+        "mode = local; database {}; config at {}",
+        db_path.display(),
+        path.display()
+    );
+    if args.prepare {
+        prepare(&LocalConfig::default()).map_err(|e| e.to_string())?;
+        println!("embedding model downloaded");
+    } else {
+        println!(
+            "embedding model not downloaded; run `lampl init --local --prepare` once, or pass --no-embed"
+        );
+    }
+    Ok(())
+}
+
+fn open_local() -> Result<SqliteStore, String> {
+    match config::load()? {
+        Config::Local { db_path } => open_existing(&db_path),
+        Config::Server { url } => {
+            probe_server(&url)?;
+            Err(format!(
+                "server mode ({url}) is reachable but this build has no server client yet"
+            ))
+        }
+    }
+}
+
+fn open_existing(db_path: &Path) -> Result<SqliteStore, String> {
+    if !db_path.exists() {
+        return Err(format!(
+            "local database {} is missing; run `lampl init --local` to create a new one",
+            db_path.display()
+        ));
+    }
+    SqliteStore::open(db_path).map_err(|e| e.to_string())
+}
+
+fn probe_server(url: &str) -> Result<(), String> {
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(5)))
+        .build()
+        .into();
+    agent
+        .get(format!("{}/health", url.trim_end_matches('/')))
+        .call()
+        .map(|_| ())
+        .map_err(|e| format!("server {url} is unreachable ({e}); not falling back to local mode"))
+}
+
+fn embed(text: &str) -> Result<Embedding, String> {
+    let embedder = LocalEmbedder::load(&LocalConfig::default()).map_err(|e| e.to_string())?;
+    let vector = embedder
+        .embed(&[text])
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .next()
+        .ok_or("embedder returned no vector")?;
+    Ok(Embedding {
+        vector,
+        model_id: embedder.model_id().to_owned(),
+        model_digest: embedder.model_digest().to_owned(),
+    })
+}
+
+pub(crate) fn store(args: StoreArgs) -> Result<(), String> {
+    let mut db = open_local()?;
+    let memory_type: MemoryType = args.memory_type.parse().map_err(|e| format!("{e}"))?;
+    let embedding = if args.no_embed {
+        None
+    } else {
+        Some(embed(&format!("{}\n{}", args.title, args.body))?)
+    };
+    let memory = db
+        .store(NewMemory {
+            memory_type,
+            title: args.title,
+            body: args.body,
+            tags: args.tags,
+            project: args.project,
+            importance: args.importance,
+            embedding,
+        })
+        .map_err(|e| e.to_string())?;
+    println!(
+        "{}",
+        serde_json::to_string(&memory).map_err(|e| e.to_string())?
+    );
+    Ok(())
+}
+
+pub(crate) fn recall(args: RecallArgs) -> Result<(), String> {
+    let db = open_local()?;
+    let mut q = RecallQuery::new(&args.query);
+    q.project = args.project;
+    q.limit = args.limit;
+    if !args.no_embed {
+        q.embedding = Some(embed(&args.query)?.vector);
+    }
+    for hit in db.recall(&q).map_err(|e| e.to_string())? {
+        let line = serde_json::json!({
+            "score": hit.score,
+            "cosine": hit.cosine,
+            "coverage": hit.coverage,
+            "memory": hit.memory,
+        });
+        println!("{line}");
+    }
+    Ok(())
+}
