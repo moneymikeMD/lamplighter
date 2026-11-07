@@ -52,6 +52,8 @@ Open, no details: `{"status": "alive"}`. Process liveness only; it proves nothin
   "schema_version": 1,
   "embed_mode": "in-process",
   "embed_model": "Qwen/Qwen3-Embedding-0.6B",
+  "embed_digest": "sha256:...",
+  "store": {"host": "10.0.0.5", "port": 5432, "database": "lampl"},
   "embedder_available": true,
   "embedder_error": null,
   "memory_count": 0,
@@ -88,13 +90,13 @@ Body: `from_id`, `to_id`, `link_type` (`SUPERSEDES`, `SOLVES`, `CAUSES`, `CONTRA
 
 `[{"direction": "outgoing"|"incoming", "link": {...}, "memory": {...}}]`, superseded memories included.
 
-### `GET /v1/export?project=`
+### `GET /v1/export?project=&vectors=true`
 
-`application/x-ndjson`, streamed in pages: one `{"kind": "memory", ...}` line per memory in id order, then one `{"kind": "link", ...}` line per link. Vectors are not exported; they are recomputed.
+`application/x-ndjson`, streamed in pages: a `{"kind": "header", "format": "lampl-export", "format_version", "api_version", "embed_model", "embed_digest"}` line, one `{"kind": "memory", ...}` line per memory in id order, one `{"kind": "link", ...}` line per link, then `{"kind": "end", "memories", "links"}` so a reader can tell a complete export from a cut-off one. Each memory carries `vector` (1024 floats) with its `embedding_model` and `embedding_digest` when it has been embedded; `vectors=false` omits them.
 
 ### `POST /v1/import`
 
-Body: the NDJSON produced by export (up to 256 MiB). Atomic: any bad line or a link to an unknown memory is `400` and nothing is written. Existing ids and links are skipped, so re-importing is safe. Returns `{"memories_imported", "memories_skipped", "links_imported", "links_skipped"}`. Imported rows are embedded by the background worker.
+Body: the NDJSON produced by export (up to 256 MiB); header and end lines are ignored. Atomic: any bad line or a link to an unknown memory is `400` and nothing is written. A `vector` must have 1024 values and come with `embedding_model` and `embedding_digest`; it is stored as given, and the background worker re-embeds rows whose digest differs from the server's. Existing ids and links are skipped, so re-importing is safe. Returns `{"memories_imported", "memories_skipped", "links_imported", "links_skipped"}`. Rows without a vector are embedded by the background worker.
 
 ## Background embedding
 

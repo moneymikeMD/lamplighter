@@ -8,7 +8,7 @@ mod local;
 use std::path::PathBuf;
 
 pub use endpoint::{EndpointEmbedder, EndpointKind};
-pub use local::{LocalConfig, LocalEmbedder, default_cache_dir, prepare};
+pub use local::{LocalConfig, LocalEmbedder, default_cache_dir, model_cached, prepare};
 
 pub const DEFAULT_REPO_ID: &str = "Qwen/Qwen3-Embedding-0.6B";
 pub const DIM: usize = 1024;
