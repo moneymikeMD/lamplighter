@@ -14,7 +14,7 @@ Directories come from `LAMPL_CONFIG_DIR` and `LAMPL_DATA_DIR`, defaulting to the
 
 ## Embedding model
 
-Embedding is in-process (`lampl-embed`, Qwen3-Embedding-0.6B on CPU). The weights are not bundled and are never downloaded implicitly. Download them once:
+Embedding is in-process (`lampl-embed`, Qwen3-Embedding-0.6B on CPU; build with `--features metal` on Apple Silicon to run it on the GPU, falling back to CPU when no Metal device exists, and set `LAMPL_EMBED_DEVICE=cpu` to force CPU). The weights are not bundled and are never downloaded implicitly. Download them once:
 
 ```bash
 lampl init --local --prepare

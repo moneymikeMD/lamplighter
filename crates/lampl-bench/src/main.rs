@@ -2,6 +2,7 @@
 
 //! lampl-bench: scores lamplighter's retrieval on LongMemEval (evidence-session recall@k and MRR, no LLM judge).
 
+mod checkpoint;
 mod dataset;
 mod lamplighter;
 mod metrics;
@@ -71,6 +72,9 @@ struct RunArgs {
     /// Measure full-text only when the server's embedder is unavailable
     #[arg(long)]
     allow_full_text: bool,
+    /// Append each scored question to this JSONL file and, if it already exists, skip the questions it holds; a resumed run may target a store that already holds memories
+    #[arg(long)]
+    checkpoint: Option<PathBuf>,
     /// Seconds to wait for background embedding to finish
     #[arg(long, default_value_t = 7200)]
     wait_secs: u64,
@@ -107,38 +111,70 @@ fn run(a: &RunArgs) -> Result<(), String> {
         }
     }
 
+    let mut ckpt = match &a.checkpoint {
+        Some(p) => Some(checkpoint::Checkpoint::open(
+            p,
+            &serde_json::json!({
+                "dataset": dataset::REVISION,
+                "subset": format!("{:?}", a.subset).to_lowercase(),
+                "seed": a.seed,
+                "haystack": haystack,
+                "ids": ids,
+            }),
+        )?),
+        None => None,
+    };
+    let resumed = ckpt.as_ref().map_or(0, |c| c.done.len());
+    if resumed > 0 {
+        eprintln!(
+            "resuming: {resumed} of {} questions already scored",
+            questions.len()
+        );
+    }
+
     let mut arm = lamplighter::Lamplighter::connect(
         lamplighter::Options {
             base: a.server.trim_end_matches('/').to_owned(),
-            allow_nonempty: a.allow_nonempty,
+            allow_nonempty: a.allow_nonempty || resumed > 0,
             allow_full_text: a.allow_full_text,
             wait: Duration::from_secs(a.wait_secs),
         },
         key,
     )?;
 
-    let mut memories = 0;
+    let mut rows: Vec<report::Row> = Vec::new();
     for (i, q) in questions.iter().enumerate() {
-        memories += arm.ingest(q)?;
-        eprintln!(
-            "ingested {}/{} questions ({memories} memories)",
-            i + 1,
-            questions.len()
-        );
-    }
-    arm.settle()?;
-
-    let mut rows = Vec::new();
-    let mut modes = HashSet::new();
-    for q in &questions {
+        if let Some(prior) = ckpt
+            .as_ref()
+            .and_then(|c| c.done.iter().find(|r| r.id == q.id))
+        {
+            rows.push(prior.clone());
+            continue;
+        }
+        let started = std::time::Instant::now();
+        let stored = arm.ingest(q)?;
+        arm.settle()?;
         let ranked = arm.rank(q)?;
-        modes.insert(ranked.mode.clone());
-        rows.push(report::Row {
+        let row = report::Row {
             id: q.id.clone(),
             kind: q.kind.clone(),
             score: metrics::score(&ranked.sessions, &q.answer_session_ids),
-        });
+            memories: stored,
+            mode: ranked.mode,
+        };
+        if let Some(c) = ckpt.as_mut() {
+            c.append(row.clone())?;
+        }
+        rows.push(row);
+        eprintln!(
+            "scored {}/{} questions ({stored} memories, {:.0}s)",
+            i + 1,
+            questions.len(),
+            started.elapsed().as_secs_f64()
+        );
     }
+    let memories = rows.iter().map(|r| r.memories).sum();
+    let modes: HashSet<String> = rows.iter().map(|r| r.mode.clone()).collect();
     let mut modes: Vec<String> = modes.into_iter().collect();
     modes.sort();
     let out = report::Report {

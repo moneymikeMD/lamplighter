@@ -5,16 +5,20 @@
 use std::collections::BTreeMap;
 use std::fmt::Write;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::metrics::{KS, Score, mean};
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Row {
     pub(crate) id: String,
     pub(crate) kind: String,
     pub(crate) score: Score,
+    #[serde(default)]
+    pub(crate) memories: usize,
+    #[serde(default)]
+    pub(crate) mode: String,
 }
 
 #[derive(Debug, Serialize)]

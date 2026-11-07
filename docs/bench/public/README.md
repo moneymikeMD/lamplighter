@@ -35,7 +35,9 @@ export LAMPL_API_KEY=$(./target/release/lampl serve keys add bench)
 ./target/release/lampl-bench run --subset ci --json-out results.json
 ```
 
-`--subset ci` is 6 questions (one per question type, chosen by a fixed-seed shuffle so the same run picks the same questions) with each haystack cut to 12 sessions: every evidence session plus a seeded sample of the rest, which makes retrieval easier than the real 48-session haystack; `--subset full` is all 470 questions with every session (`--haystack N` overrides the cut); `--limit N` and `--seed S` override. The dataset (277 MB) is downloaded to the OS cache directory on first use; `lampl-bench fetch` does only that. If the server's embedder is down the run stops, because it would measure full-text only; `--allow-full-text` accepts that and the output then says `recall mode full-text`.
+`--subset ci` is 6 questions (one per question type, chosen by a fixed-seed shuffle so the same run picks the same questions) with each haystack cut to 12 sessions: every evidence session plus a seeded sample of the rest, which makes retrieval easier than the real 48-session haystack; `--subset full` is all 470 questions with every session (`--haystack N` overrides the cut); `--limit N` and `--seed S` override. The dataset (277 MB) is downloaded to the OS cache directory on first use; `lampl-bench fetch` does only that. `--checkpoint FILE` appends each scored question to a JSONL file and, on restart with the same options, skips the questions already in it (the store may then be non-empty); the file's first line fingerprints the run and a mismatch is refused.
+
+On Apple Silicon build the server with `cargo build --release -p lampl --features metal`: on a 2-question full-haystack slice (484 memories) Metal embeds at about 0.21 s per memory including ingest, against 3.75 s on the M2's CPU, with vectors matching CPU at cosine above 0.9999. If the server's embedder is down the run stops, because it would measure full-text only; `--allow-full-text` accepts that and the output then says `recall mode full-text`.
 
 ## CI
 

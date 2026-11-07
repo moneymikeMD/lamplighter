@@ -11,6 +11,9 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+metal = ["lampl-embed/metal"]
+
 [dependencies]
 lampl-core = { path = "../lampl-core", version = "0.1.0" }
 lampl-embed = { path = "../lampl-embed", version = "0.1.0" }

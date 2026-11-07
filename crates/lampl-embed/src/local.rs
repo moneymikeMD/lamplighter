@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! In-process Qwen3-Embedding-0.6B on candle, CPU only. `prepare` is the only code that touches the network.
+//! In-process Qwen3-Embedding-0.6B on candle: CPU, or Metal when built with the `metal` feature. `prepare` is the only code that touches the network.
 
 use std::path::{Path, PathBuf};
 
@@ -88,7 +88,7 @@ impl LocalEmbedder {
         let model_cfg: Qwen3Config =
             serde_json::from_slice(&std::fs::read(&config_path).map_err(load_err)?)
                 .map_err(load_err)?;
-        let device = Device::Cpu;
+        let device = select_device();
         // candle's safetensors loader mmaps the weights; the cache file must not be modified while loaded.
         #[allow(unsafe_code)]
         let vb = unsafe {
@@ -134,6 +134,19 @@ impl Embedder for LocalEmbedder {
     fn model_digest(&self) -> &str {
         &self.digest
     }
+}
+
+/// Metal when the `metal` feature is built and a device exists, else CPU; `LAMPL_EMBED_DEVICE=cpu` forces CPU.
+fn select_device() -> Device {
+    #[cfg(feature = "metal")]
+    if std::env::var("LAMPL_EMBED_DEVICE").is_ok_and(|v| v.eq_ignore_ascii_case("cpu")) {
+        return Device::Cpu;
+    }
+    #[cfg(feature = "metal")]
+    if let Ok(d) = Device::new_metal(0) {
+        return d;
+    }
+    Device::Cpu
 }
 
 fn load_err<E: std::fmt::Display>(e: E) -> EmbedError {

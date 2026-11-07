@@ -4,11 +4,11 @@
 
 use std::collections::BTreeMap;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 pub(crate) const KS: [usize; 4] = [1, 3, 5, 10];
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Score {
     pub(crate) recall_any: BTreeMap<usize, f64>,
     pub(crate) recall_all: BTreeMap<usize, f64>,
