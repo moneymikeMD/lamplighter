@@ -11,6 +11,9 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+metal = ["candle-core/metal", "candle-nn/metal", "fastembed/metal"]
+
 [dependencies]
 fastembed.workspace = true
 candle-core.workspace = true
