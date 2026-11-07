@@ -35,6 +35,10 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 sha2 = "0.11.1"
 getrandom = "0.4.3"
+rusqlite = { version = "0.39.0", features = ["bundled"] }
+sqlite-vec = "=0.1.9"
+toml = "1.2.1"
+tempfile = "3.27.0"
 
 [workspace.lints.rust]
 unsafe_code = "deny"

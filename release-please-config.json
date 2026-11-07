@@ -13,6 +13,8 @@
         { "type": "toml", "path": "crates/lampl/Cargo.toml", "jsonpath": "$.dependencies.lampl-embed.version" },
         { "type": "toml", "path": "crates/lampl/Cargo.toml", "jsonpath": "$.dependencies.lampl-core.version" },
         { "type": "toml", "path": "crates/lampl/Cargo.toml", "jsonpath": "$.dependencies.lampl-store-pg.version" },
+        { "type": "toml", "path": "crates/lampl/Cargo.toml", "jsonpath": "$.dependencies.lampl-store-sqlite.version" },
+        { "type": "toml", "path": "crates/lampl-store-sqlite/Cargo.toml", "jsonpath": "$.dependencies.lampl-core.version" },
         { "type": "toml", "path": "crates/lampl-store-pg/Cargo.toml", "jsonpath": "$.dependencies.lampl-core.version" },
         { "type": "toml", "path": "crates/lamplighter/Cargo.toml", "jsonpath": "$.dependencies.lampl.version" },
         { "type": "toml", "path": "Cargo.lock", "jsonpath": "$.package[?(@.name=='lampl')].version" },

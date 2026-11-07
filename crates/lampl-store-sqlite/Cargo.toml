@@ -12,3 +12,12 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+lampl-core = { path = "../lampl-core", version = "0.1.0" }
+chrono.workspace = true
+rusqlite.workspace = true
+sqlite-vec.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

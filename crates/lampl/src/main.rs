@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 mod cmd_bench_embed;
+mod local;
 
 use clap::{Parser, Subcommand};
 
@@ -17,6 +18,12 @@ enum Command {
     BenchEmbed(cmd_bench_embed::Args),
     /// Run the HTTP API server
     Serve(lampl::serve::Cmd),
+    /// Choose local (embedded) or server mode; the only way a store is created
+    Init(local::InitArgs),
+    /// Store a memory in the configured local store
+    Store(local::StoreArgs),
+    /// Recall memories from the configured local store
+    Recall(local::RecallArgs),
 }
 
 fn main() {
@@ -24,6 +31,9 @@ fn main() {
     let result = match cli.command {
         Command::BenchEmbed(args) => cmd_bench_embed::run(args),
         Command::Serve(args) => lampl::serve::run(args),
+        Command::Init(args) => local::init(args),
+        Command::Store(args) => local::store(args),
+        Command::Recall(args) => local::recall(args),
     };
     if let Err(e) = result {
         eprintln!("lampl: {e}");
