@@ -94,6 +94,8 @@ Body: `from_id`, `to_id`, `link_type` (`SUPERSEDES`, `SOLVES`, `CAUSES`, `CONTRA
 
 `application/x-ndjson`, streamed in pages: a `{"kind": "header", "format": "lampl-export", "format_version", "api_version", "embed_model", "embed_digest"}` line, one `{"kind": "memory", ...}` line per memory in id order, one `{"kind": "link", ...}` line per link, then `{"kind": "end", "memories", "links"}` so a reader can tell a complete export from a cut-off one. Each memory carries `vector` (1024 floats) with its `embedding_model` and `embedding_digest` when it has been embedded; `vectors=false` omits them.
 
+The export framing (header line, per-memory `vector`, end marker) arrived before the first release, so `API_VERSION` was not bumped for it. `project` exports only links whose both ends are in the exported set.
+
 ### `POST /v1/import`
 
 Body: the NDJSON produced by export (up to 256 MiB); header and end lines are ignored. Atomic: any bad line or a link to an unknown memory is `400` and nothing is written. A `vector` must have 1024 values and come with `embedding_model` and `embedding_digest`; it is stored as given, and the background worker re-embeds rows whose digest differs from the server's. Existing ids and links are skipped, so re-importing is safe. Returns `{"memories_imported", "memories_skipped", "links_imported", "links_skipped"}`. Rows without a vector are embedded by the background worker.

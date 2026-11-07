@@ -138,6 +138,9 @@ impl Client {
             match short.get(format!("{base}/livez")).call() {
                 Ok(resp) => {
                     check_version(base, &resp)?;
+                    if !failures.is_empty() {
+                        eprintln!("lampl: {}; using {base}", failures.join("; "));
+                    }
                     return Ok(Client {
                         base: base.clone(),
                         key: api_key(settings)?,

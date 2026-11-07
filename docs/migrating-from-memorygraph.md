@@ -30,4 +30,8 @@ UUID ids are kept. A non-UUID id becomes a stable UUIDv5 of the original, so rer
 
 ## Direct database read
 
-`lampl import --from-postgres` reads memory-pg's `nodes(id, properties jsonb)` and `relationships(from_id, to_id, rel_type, properties jsonb)` tables and then uses the same conversion. **UNVERIFIED:** that table layout is from memory of the memorygraph Postgres backend and was not checked against the live store (read access was not available when this was written). If the schema is not recognised the import fails and lists the tables present; use the JSON export in that case, and confirm the layout before relying on this path in the cutover.
+`lampl import --from-postgres` reads memory-pg's flat `memories` table (id, type, title, content, summary, tags, importance, timestamps) and `links` table (from_id, to_id, rel_type, strength, created_at), taken from the memorygraph backend's `CREATE TABLE`s, then uses the same conversion. Links with `valid_until` or `invalidated_by` set are soft-invalidated in memorygraph and are skipped. If the tables do not match, the import fails and lists the tables present. Embeddings are never read; everything re-embeds.
+
+## Known limits
+
+The JSON export and the database read are not snapshots of a quiet store; stop writers first. `RELATED_TO`, `SIMILAR_TO` and `BLOCKS` links are dropped (32 of 346 in the 2026-09-28 export) and counted on stderr.

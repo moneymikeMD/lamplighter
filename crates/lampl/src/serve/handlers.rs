@@ -392,7 +392,8 @@ async fn next_chunk(ctx: &ExportCtx, phase: Phase) -> Result<Option<(Bytes, Phas
         Phase::Links { memories } => {
             let rows: Vec<LinkDto> = sqlx::query_as(
                 "SELECT from_id, to_id, link_type, strength, created_at FROM links \
-                 WHERE $1::text IS NULL OR from_id IN (SELECT id FROM memories WHERE project = $1) \
+                 WHERE $1::text IS NULL OR (from_id IN (SELECT id FROM memories WHERE project = $1) \
+                   AND to_id IN (SELECT id FROM memories WHERE project = $1)) \
                  ORDER BY created_at, from_id, to_id, link_type",
             )
             .bind(ctx.project.as_deref())

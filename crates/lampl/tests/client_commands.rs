@@ -400,6 +400,22 @@ fn export_to_a_fresh_database_then_import_gives_identical_recall() {
         return;
     };
     let ids = populate(&src);
+    let newer = json(&src.ok(&[
+        "store",
+        "--title",
+        "restic nightly backup v2",
+        "--body",
+        "restic now backs up to the nas twice a night",
+        "--project",
+        "lab",
+        "--tags",
+        "lab",
+    ]))["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    src.ok(&["link", &newer, &ids[0], "SUPERSEDES"]);
+    src.embed_all();
     let queries = [
         "restic nightly",
         "grafana alert",
@@ -426,15 +442,22 @@ fn export_to_a_fresh_database_then_import_gives_identical_recall() {
             out["memories_imported"].as_u64(),
             out["links_imported"].as_u64()
         ),
-        (Some(4), Some(2))
+        (Some(5), Some(3))
     );
     let health: Value = serde_json::from_str(&dst.ok(&["doctor", "--json"])).unwrap();
     assert_eq!(
-        health["health"]["embedded_count"], 4,
+        health["health"]["embedded_count"], 5,
         "vectors arrived, no re-embed needed"
     );
     let after: Vec<Vec<String>> = queries.iter().map(|q| dst.recall_ids(q)).collect();
     assert_eq!(before, after);
+    for q in queries {
+        assert!(
+            !dst.recall_ids(q).contains(&ids[0]),
+            "superseded memory surfaced for {q}"
+        );
+    }
+    assert!(dst.recall_ids("restic nightly").contains(&newer));
     assert!(dst.ok(&["related", &ids[2]]).contains("SOLVES"));
 
     let again: Value = serde_json::from_str(&dst.ok(&["import", file.to_str().unwrap()])).unwrap();
@@ -544,4 +567,152 @@ fn a_truncated_export_file_is_refused() {
     let out = fresh.lampl(&["import", file.to_str().unwrap()]);
     assert!(!out.status.success());
     assert!(err(&out).contains("truncated"), "{}", err(&out));
+}
+
+#[test]
+fn project_export_leaves_out_links_that_leave_the_project() {
+    let Some(l) = start(Fake {
+        digest: "sha256:a",
+        down: false,
+    }) else {
+        return;
+    };
+    let a = json(&l.ok(&["store", "--title", "a", "--body", "alpha", "--project", "p"]))["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let b = json(&l.ok(&["store", "--title", "b", "--body", "beta", "--project", "p"]))["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let c = json(&l.ok(&["store", "--title", "c", "--body", "gamma", "--project", "q"]))["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    l.ok(&["link", &a, &b, "CAUSES"]);
+    l.ok(&["link", &a, &c, "CAUSES"]);
+    let file = l.cfg.path().join("p.ndjson");
+    l.ok(&["export", "--project", "p", "-o", file.to_str().unwrap()]);
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert_eq!(text.matches("\"kind\":\"link\"").count(), 1);
+    let fresh = start(Fake {
+        digest: "sha256:a",
+        down: false,
+    })
+    .unwrap();
+    let out: Value = serde_json::from_str(&fresh.ok(&["import", file.to_str().unwrap()])).unwrap();
+    assert_eq!(
+        (
+            out["memories_imported"].as_u64(),
+            out["links_imported"].as_u64()
+        ),
+        (Some(2), Some(1))
+    );
+}
+
+const MEMORYGRAPH_DDL: &str = "
+CREATE EXTENSION IF NOT EXISTS vector;
+CREATE TABLE memories (
+  id text PRIMARY KEY, type text NOT NULL, title text NOT NULL, content text NOT NULL, summary text,
+  tags text[] NOT NULL DEFAULT '{}', importance double precision NOT NULL DEFAULT 0.5,
+  confidence double precision NOT NULL DEFAULT 0.8, effectiveness double precision,
+  usage_count integer NOT NULL DEFAULT 0, created_at timestamptz NOT NULL, updated_at timestamptz NOT NULL,
+  last_accessed timestamptz, version integer NOT NULL DEFAULT 1, updated_by text, context jsonb,
+  embedding halfvec(1024), embedding_model text, embedding_error text
+);
+CREATE TABLE links (
+  id text PRIMARY KEY, from_id text NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+  to_id text NOT NULL REFERENCES memories(id) ON DELETE CASCADE, rel_type text NOT NULL,
+  strength double precision NOT NULL DEFAULT 0.5, confidence double precision NOT NULL DEFAULT 0.8,
+  context text, evidence_count integer NOT NULL DEFAULT 1, success_rate double precision,
+  created_at timestamptz NOT NULL, last_validated timestamptz NOT NULL, validation_count integer NOT NULL DEFAULT 0,
+  counter_evidence_count integer NOT NULL DEFAULT 0, valid_from timestamptz NOT NULL, valid_until timestamptz,
+  recorded_at timestamptz NOT NULL, invalidated_by text
+);
+INSERT INTO memories (id, type, title, content, tags, importance, created_at, updated_at) VALUES
+  ('11111111-1111-4111-8111-111111111111', 'solution', 'fix one', 'body one', '{x}', 0.9, '2026-09-12T17:24:44Z', '2026-09-18T18:15:47Z'),
+  ('22222222-2222-4222-8222-222222222222', 'problem', 'problem two', 'body two', '{}', 1, '2026-09-12T17:24:44Z', '2026-09-12T17:24:44Z'),
+  ('legacy-3', 'general', 'legacy three', 'body three', '{y}', 0.5, '2026-09-12T17:24:44Z', '2026-09-12T17:24:44Z');
+INSERT INTO links (id, from_id, to_id, rel_type, strength, created_at, last_validated, valid_from, recorded_at, valid_until, invalidated_by) VALUES
+  ('l1', '11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222', 'CONTRADICTS', 0.7, now(), now(), now(), now(), NULL, NULL),
+  ('l2', '11111111-1111-4111-8111-111111111111', 'legacy-3', 'SOLVES', 0.5, now(), now(), now(), now(), now(), NULL),
+  ('l3', '22222222-2222-4222-8222-222222222222', 'legacy-3', 'CAUSES', 0.5, now(), now(), now(), now(), NULL, 'l1'),
+  ('l4', 'legacy-3', '22222222-2222-4222-8222-222222222222', 'RELATED_TO', 0.5, now(), now(), now(), now(), NULL, NULL);
+";
+
+#[test]
+fn from_postgres_reads_memorygraphs_flat_schema_and_skips_invalidated_links() {
+    let Some(l) = start(Fake {
+        digest: "sha256:a",
+        down: false,
+    }) else {
+        return;
+    };
+    let src = format!("lampl_mg_{}", Uuid::now_v7().simple());
+    let (base, query) = l
+        .admin
+        .split_once('?')
+        .map_or((l.admin.clone(), String::new()), |(b, q)| {
+            (b.to_owned(), format!("?{q}"))
+        });
+    let root = base.rsplit_once('/').unwrap().0.to_owned();
+    l.rt.block_on(async {
+        let mut admin = sqlx::PgConnection::connect(&l.admin).await.unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!("CREATE DATABASE {src}")))
+            .execute(&mut admin)
+            .await
+            .unwrap();
+        let mut conn = sqlx::PgConnection::connect(&format!("{root}/{src}{query}"))
+            .await
+            .unwrap();
+        sqlx::raw_sql(MEMORYGRAPH_DDL)
+            .execute(&mut conn)
+            .await
+            .unwrap();
+    });
+    let url = format!("{root}/{src}{query}");
+    let run = || {
+        let out = Command::new(env!("CARGO_BIN_EXE_lampl"))
+            .args(["import", "--from-postgres", "--project", "mg"])
+            .env("LAMPL_FROM_POSTGRES_URL", &url)
+            .env("LAMPL_SERVER", &l.url)
+            .env("LAMPL_API_KEY", &l.key)
+            .env("LAMPL_CONFIG_DIR", l.cfg.path())
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{}", err(&out));
+        out
+    };
+    let first = run();
+    let out: Value = serde_json::from_slice(&first.stdout).unwrap();
+    assert_eq!(
+        (
+            out["memories_imported"].as_u64(),
+            out["links_imported"].as_u64()
+        ),
+        (Some(3), Some(1))
+    );
+    assert!(err(&first).contains("RELATED_TO"), "{}", err(&first));
+    let again: Value = serde_json::from_slice(&run().stdout).unwrap();
+    assert_eq!(
+        (
+            again["memories_imported"].as_u64(),
+            again["links_imported"].as_u64()
+        ),
+        (Some(0), Some(0))
+    );
+    let rel = l.ok(&["related", "11111111-1111-4111-8111-111111111111"]);
+    assert!(rel.contains("CONTRADICTS") && !rel.contains("SOLVES"));
+    assert_eq!(
+        json(&l.ok(&["get", "11111111-1111-4111-8111-111111111111"]))["memory_type"],
+        "fix"
+    );
+    l.rt.block_on(async {
+        let mut admin = sqlx::PgConnection::connect(&l.admin).await.unwrap();
+        let _ = sqlx::query(sqlx::AssertSqlSafe(format!(
+            "DROP DATABASE IF EXISTS {src} WITH (FORCE)"
+        )))
+        .execute(&mut admin)
+        .await;
+    });
 }
