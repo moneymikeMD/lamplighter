@@ -1,0 +1,40 @@
+name: release-please
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - id: app-token
+        uses: actions/create-github-app-token@v3.3.0
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      - id: release
+        uses: googleapis/release-please-action@v5.0.0
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+      # Plugin dependency ranges resolve against lamplighter--vX.Y.Z tags; release-please tags vX.Y.Z.
+      - name: Add the lamplighter--v tag for the plugin
+        if: ${{ steps.release.outputs.release_created }}
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag_name }}
+          RELEASE_SHA: ${{ steps.release.outputs.sha }}
+        run: |
+          ref="refs/tags/lamplighter--${RELEASE_TAG}"
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/lamplighter--${RELEASE_TAG}" >/dev/null 2>&1; then
+            echo "${ref} already exists"
+          else
+            gh api "repos/${GITHUB_REPOSITORY}/git/refs" -f ref="${ref}" -f sha="${RELEASE_SHA}"
+          fi
