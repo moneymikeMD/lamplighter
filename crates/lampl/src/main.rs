@@ -5,6 +5,7 @@ mod cmd;
 mod cmd_bench_embed;
 mod import;
 mod local;
+mod mcp;
 
 use clap::{Parser, Subcommand};
 
@@ -21,6 +22,8 @@ enum Command {
     BenchEmbed(cmd_bench_embed::Args),
     /// Run the HTTP API server
     Serve(lampl::serve::Cmd),
+    /// Serve the memory tools over MCP on stdio
+    Mcp,
     /// Choose local (embedded) or server mode; the only way a store is created
     Init(local::InitArgs),
     /// Store a memory (server or local store, as configured)
@@ -48,6 +51,7 @@ fn main() {
     let result = match cli.command {
         Command::BenchEmbed(args) => cmd_bench_embed::run(args),
         Command::Serve(args) => lampl::serve::run(args),
+        Command::Mcp => mcp::run(),
         Command::Init(args) => local::init(args),
         Command::Store(args) => cmd::store(args),
         Command::Recall(args) => cmd::recall(&args),

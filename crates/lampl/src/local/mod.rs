@@ -65,6 +65,16 @@ pub(crate) struct RecallArgs {
 }
 
 impl RecallArgs {
+    pub(crate) fn new(query: String, project: Option<String>, limit: usize) -> Self {
+        Self {
+            query: Some(query),
+            query_flag: None,
+            project,
+            limit,
+            no_embed: false,
+        }
+    }
+
     pub(crate) fn text(&self) -> &str {
         self.query
             .as_deref()
@@ -172,7 +182,7 @@ fn embed(text: &str) -> Result<Embedding, String> {
     })
 }
 
-pub(crate) fn store(args: StoreArgs) -> Result<(), String> {
+pub(crate) fn store_value(args: StoreArgs) -> Result<serde_json::Value, String> {
     let mut db = open_local()?;
     let memory_type: MemoryType = args.memory_type.parse().map_err(|e| format!("{e}"))?;
     let embedding = if args.no_embed {
@@ -191,14 +201,10 @@ pub(crate) fn store(args: StoreArgs) -> Result<(), String> {
             embedding,
         })
         .map_err(|e| e.to_string())?;
-    println!(
-        "{}",
-        serde_json::to_string(&memory).map_err(|e| e.to_string())?
-    );
-    Ok(())
+    serde_json::to_value(&memory).map_err(|e| e.to_string())
 }
 
-pub(crate) fn recall(args: &RecallArgs) -> Result<(), String> {
+pub(crate) fn recall_hits(args: &RecallArgs) -> Result<Vec<serde_json::Value>, String> {
     let db = open_local()?;
     let mut q = RecallQuery::new(args.text());
     q.project.clone_from(&args.project);
@@ -206,14 +212,17 @@ pub(crate) fn recall(args: &RecallArgs) -> Result<(), String> {
     if !args.no_embed {
         q.embedding = Some(embed(args.text())?.vector);
     }
-    for hit in db.recall(&q).map_err(|e| e.to_string())? {
-        let line = serde_json::json!({
-            "score": hit.score,
-            "cosine": hit.cosine,
-            "coverage": hit.coverage,
-            "memory": hit.memory,
-        });
-        println!("{line}");
-    }
-    Ok(())
+    Ok(db
+        .recall(&q)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .map(|hit| {
+            serde_json::json!({
+                "score": hit.score,
+                "cosine": hit.cosine,
+                "coverage": hit.coverage,
+                "memory": hit.memory,
+            })
+        })
+        .collect())
 }
