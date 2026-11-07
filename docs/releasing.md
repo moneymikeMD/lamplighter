@@ -26,7 +26,8 @@ release-please edits version strings through `extra-files` in `release-please-co
 
 | Failure | Recovery |
 | --- | --- |
-| `release.yml` failed after the tag exists | Fix forward on `main`, then re-run the failed jobs from the Actions run. If the workflow file itself changed, delete the GitHub Release if one was drafted, delete the tag, and re-push it. |
+| `release.yml` failed after the tag exists | Fix forward on `main`, then re-run the failed jobs from the Actions run. release-please owns the GitHub Release, so do not delete it: if the workflow file itself changed, delete and re-push the tag only after saving the release notes, or upload the archives by hand with `gh release upload vX.Y.Z <files>`. |
+| `release.yml` `host` job: `a release with the same tag name already exists` | Seen on v0.1.0. dist tried to create the release release-please had already made. Fixed by `create-release = false` in `dist-workspace.toml`: `host` now runs `gh release upload` and `gh release edit --draft=false` on the existing release, leaving its title and notes alone. |
 | `publish.yml` failed part-way | Re-run the workflow, or run it with `workflow_dispatch` and the tag. It skips every crate version already on crates.io and publishes the rest. |
 | A crate version is broken on crates.io | Versions cannot be overwritten. `cargo yank --version X.Y.Z <crate>`, fix, and release `X.Y.(Z+1)`. |
 | `image.yml` failed | Re-run the failed jobs. The `merge` job only runs when both platform builds pushed a digest. |
@@ -41,7 +42,7 @@ The crates.io token is the `CARGO_REGISTRY_TOKEN` repo secret.
 
 ## Regenerating `release.yml`
 
-`dist-workspace.toml` sets `allow-dirty = ["ci"]` because `release.yml` is edited after generation: the tag trigger is narrowed to `v[0-9]+.[0-9]+.[0-9]+*` so the `lamplighter--v` tag does not start a second run, and action versions are bumped to current releases. The workflow-level permission is `contents: read`, with `contents: write` only on the `host` job that creates the GitHub Release; dist's generator emits workflow-level `write`, so regenerating would undo this. To upgrade dist, remove `allow-dirty`, run `dist init`, then repeat these edits.
+`dist-workspace.toml` sets `allow-dirty = ["ci"]` because `release.yml` is edited after generation: the tag trigger is narrowed to `v[0-9]+.[0-9]+.[0-9]+*` so the `lamplighter--v` tag does not start a second run, and action versions are bumped to current releases. The workflow-level permission is `contents: read`, with `contents: write` only on the `host` job that creates the GitHub Release; dist's generator emits workflow-level `write`, so regenerating would undo this. `create-release = false` makes dist upload to the release release-please created instead of creating one. To upgrade dist or change dist settings, remove `allow-dirty`, run `dist generate`, then repeat these edits and restore `allow-dirty`.
 
 ## Follow-ups
 
