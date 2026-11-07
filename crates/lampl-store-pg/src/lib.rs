@@ -38,6 +38,8 @@ pub enum StoreError {
 pub struct RecallQuery {
     pub text: String,
     pub embedding: Option<Vec<f32>>,
+    /// Digest of the model that produced `embedding`; the vector arm compares only rows embedded by that same digest.
+    pub embedding_digest: Option<String>,
     pub project: Option<String>,
     pub limit: usize,
     pub floor: Floor,
@@ -48,6 +50,7 @@ impl RecallQuery {
         RecallQuery {
             text: text.into(),
             embedding: None,
+            embedding_digest: None,
             project: None,
             limit: 10,
             floor: Floor::default(),
@@ -288,12 +291,13 @@ impl PgStore {
         if let Some(v) = &vector {
             let sql = format!(
                 "SELECT m.id, 1 - (m.embedding <=> $2) AS cos FROM memories m \
-                 WHERE m.embedding IS NOT NULL AND {active} ORDER BY m.embedding <=> $2, m.id LIMIT $3"
+                 WHERE m.embedding IS NOT NULL AND m.embedding_digest = $4 AND {active} ORDER BY m.embedding <=> $2, m.id LIMIT $3"
             );
             let rows = sqlx::query(AssertSqlSafe(sql))
                 .bind(&q.project)
                 .bind(v)
                 .bind(CANDIDATES)
+                .bind(&q.embedding_digest)
                 .fetch_all(&self.pool)
                 .await?;
             for row in &rows {

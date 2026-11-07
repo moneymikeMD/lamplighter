@@ -120,6 +120,7 @@ async fn superseded_memory_is_excluded_from_recall_but_still_reachable() {
     let mut q = RecallQuery::new("deploy script path");
     q.project = Some(p.clone());
     q.embedding = Some(axis(1));
+    q.embedding_digest = Some("sha256:test".to_owned());
     let before: Vec<_> = s
         .recall(&q)
         .await
@@ -171,11 +172,13 @@ async fn unrelated_query_returns_nothing_through_the_floor() {
     let mut q = RecallQuery::new("quarterly tax filing deadline");
     q.project = Some(p.clone());
     q.embedding = Some(axis(5));
+    q.embedding_digest = Some("sha256:test".to_owned());
     assert!(s.recall(&q).await.unwrap().is_empty());
 
     let mut relevant = RecallQuery::new("autovacuum scale factor");
     relevant.project = Some(p);
     relevant.embedding = Some(axis(3));
+    relevant.embedding_digest = Some("sha256:test".to_owned());
     let hits = s.recall(&relevant).await.unwrap();
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].memory.title, "postgres vacuum tuning");
@@ -211,6 +214,7 @@ async fn rrf_orders_by_fused_rank_on_a_hand_built_fixture() {
     let mut q = RecallQuery::new("alpha beta gamma");
     q.project = Some(p);
     q.embedding = Some(axis(6));
+    q.embedding_digest = Some("sha256:test".to_owned());
     q.floor.cosine = 0.0;
     q.floor.coverage = 0.0;
     let ids: Vec<_> = s
