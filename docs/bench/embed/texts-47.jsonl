@@ -1,0 +1,47 @@
+{"bucket": "short", "text": "how do I rotate a postgres replication slot"}
+{"bucket": "short", "text": "why does cargo build fail with linker error on arm64"}
+{"bucket": "short", "text": "pgvector hnsw index build memory usage"}
+{"bucket": "short", "text": "nginx reverse proxy websocket upgrade headers"}
+{"bucket": "short", "text": "git rebase onto a different base branch"}
+{"bucket": "short", "text": "docker compose healthcheck depends_on condition"}
+{"bucket": "short", "text": "rust lifetime error borrowed value does not live long enough"}
+{"bucket": "short", "text": "systemd timer not firing after reboot"}
+{"bucket": "short", "text": "tls certificate renewal with certbot dns challenge"}
+{"bucket": "short", "text": "kubernetes pod stuck in crashloopbackoff"}
+{"bucket": "short", "text": "python virtualenv activate not found on zsh"}
+{"bucket": "short", "text": "sqlite wal mode checkpoint size growth"}
+{"bucket": "short", "text": "github actions cache key for cargo registry"}
+{"bucket": "short", "text": "how to bisect a regression with git bisect run"}
+{"bucket": "short", "text": "tokio spawn_blocking versus block_in_place"}
+{"bucket": "short", "text": "zfs scrub schedule and error handling"}
+{"bucket": "short", "text": "openssl verify certificate chain from the command line"}
+{"bucket": "short", "text": "postgres full text search ranking with ts_rank_cd"}
+{"bucket": "short", "text": "http 429 retry with exponential backoff and jitter"}
+{"bucket": "short", "text": "bash set -euo pipefail pitfalls"}
+{"bucket": "short", "text": "terraform state lock stuck after interrupted apply"}
+{"bucket": "short", "text": "prometheus alert rule for high disk usage"}
+{"bucket": "short", "text": "dns resolution fails inside docker container"}
+{"bucket": "short", "text": "how to measure p95 latency from a histogram"}
+{"bucket": "short", "text": "ssh agent forwarding does not work with tmux"}
+{"bucket": "short", "text": "rust serde rename_all camelCase"}
+{"bucket": "short", "text": "mac launchd plist runs script at login"}
+{"bucket": "short", "text": "reciprocal rank fusion for hybrid search"}
+{"bucket": "short", "text": "cosine similarity versus dot product for normalized vectors"}
+{"bucket": "short", "text": "safetensors versus gguf model file format"}
+{"bucket": "short", "text": "cargo clippy deny warnings in ci"}
+{"bucket": "short", "text": "how to pin a github action to a commit sha"}
+{"bucket": "short", "text": "linux oom killer chooses which process"}
+{"bucket": "short", "text": "ntp drift on a virtual machine"}
+{"bucket": "short", "text": "rsync preserve hard links and extended attributes"}
+{"bucket": "prompt", "text": "I am trying to track down why our nightly backup job sometimes finishes with exit code zero but leaves an empty archive behind. The job runs tar piped into zstd and then uploads to object storage. Logs show no errors, but the file size is zero bytes on about one run in twenty. Can you look at the script and tell me where a failed pipeline stage could be swallowed?"}
+{"bucket": "prompt", "text": "Please review the migration plan for moving our search index from a single Postgres full text column to a hybrid setup with vector embeddings. I want to know whether the proposed table layout will still allow us to filter by tag before ranking, what the index build time looks like for roughly two hundred thousand rows, and whether the reranking step can be skipped for short queries."}
+{"bucket": "prompt", "text": "The continuous integration pipeline started failing on the macOS runner after the latest toolchain update, but the Linux runner is still green. The error mentions a missing symbol during the link step for the release build. I suspect a change in the default linker flags, so please compare the two job logs and propose the smallest change that restores the build."}
+{"bucket": "prompt", "text": "We need a design for a small command line tool that reads a stream of JSON lines from standard input, groups them by a configurable key, and prints a summary table every ten seconds. It should handle malformed lines without crashing, keep memory bounded when there are millions of distinct keys, and exit cleanly on interrupt after flushing a final summary."}
+{"bucket": "prompt", "text": "Explain the difference between a read replica falling behind because of long running queries on the standby and falling behind because of network throughput limits. I would like a checklist of the metrics to look at in each case, the settings that control query cancellation on the standby, and a recommendation for how to alert on replication lag without paging for brief spikes."}
+{"bucket": "prompt", "text": "Here is the situation: a web service sits behind a reverse proxy that terminates TLS, and some clients report intermittent connection resets during large file uploads. The proxy timeout is sixty seconds and the upload can take longer on slow links. Suggest which timeouts to raise, which to leave alone, and how to confirm the fix with a reproducible test."}
+{"bucket": "prompt", "text": "I want to write documentation for new contributors that explains how the workspace is organised, how to run the test suite, and how releases are cut. The audience is comfortable with the language but has never seen this repository. Draft an outline with section titles and two or three bullet points under each, keeping the tone plain and avoiding marketing language."}
+{"bucket": "prompt", "text": "Our container images have grown from two hundred megabytes to over one gigabyte after adding a machine learning dependency. Walk me through how to find which layers contributed the most, whether a multi stage build can drop the build toolchain, and what to do about model weights that should be downloaded at runtime rather than baked into the image."}
+{"bucket": "prompt", "text": "A teammate proposed replacing our hand written retry loop with a library that implements circuit breaking. Before we agree, list the failure modes the current loop handles, the ones it misses, and what configuration the library would need to match today's behaviour. Also note any risks of adding a dependency for something this small."}
+{"bucket": "prompt", "text": "Please summarise the trade offs between running a small embedding model inside the application process versus calling a separate model server over the network. Cover cold start time, memory footprint, latency for single short queries, behaviour under concurrent requests, operational complexity, and what happens when the model files are missing on the machine."}
+{"bucket": "prompt", "text": "We are planning to rotate every credential used by the automation agents over the next two weeks. Produce an ordered plan that starts with the lowest risk secrets, describes how to verify each rotation without breaking running jobs, identifies where a rollback would be needed, and lists the places in the repositories where stale secret names might still appear."}
+{"bucket": "prompt", "text": "I keep getting inconsistent benchmark numbers when measuring the latency of a function that calls into native code. The first few iterations are much slower, and results differ between laptop and desktop. Describe a methodology with warm up runs, a fixed number of repetitions, percentile reporting, and notes on what hardware details should be recorded alongside the results."}
