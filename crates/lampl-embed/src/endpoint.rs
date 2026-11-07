@@ -20,6 +20,16 @@ pub struct EndpointEmbedder {
     agent: ureq::Agent,
 }
 
+impl std::fmt::Debug for EndpointEmbedder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EndpointEmbedder")
+            .field("kind", &self.kind)
+            .field("base_url", &self.base_url)
+            .field("model", &self.model)
+            .finish_non_exhaustive()
+    }
+}
+
 impl EndpointEmbedder {
     pub fn new(kind: EndpointKind, base_url: &str, model: &str, api_key: Option<String>) -> Self {
         let agent: ureq::Agent = ureq::Agent::config_builder()

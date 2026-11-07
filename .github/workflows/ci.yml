@@ -32,3 +32,21 @@ jobs:
           if [ "$(uname)" = Darwin ]; then linked=$(otool -L target/release/lampl); else linked=$(ldd target/release/lampl); fi
           echo "$linked"
           ! grep -qi onnxruntime <<<"$linked"
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2.9.3
+      - uses: taiki-e/install-action@v2.90.2
+        with:
+          tool: typos@1.52.0,cargo-shear@1.14.0,cargo-deny@0.20.2
+      - name: Install lefthook
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download v2.2.2 --repo evilmartians/lefthook --pattern lefthook_2.2.2_Linux_x86_64 -O lefthook
+          sudo install -m 0755 lefthook /usr/local/bin/lefthook
+          lefthook version
+      - run: lefthook run pre-commit --all-files

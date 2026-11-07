@@ -1,0 +1,20 @@
+pre-commit:
+  parallel: true
+  commands:
+    fmt:
+      run: cargo fmt --all --check
+    clippy:
+      run: cargo clippy --workspace --all-targets -- -D warnings
+    typos:
+      run: typos
+    shear:
+      run: cargo shear
+    deny:
+      run: cargo deny check licenses bans sources
+
+pre-push:
+  commands:
+    deny-advisories:
+      run: cargo deny check advisories
+    test:
+      run: cargo test --workspace
