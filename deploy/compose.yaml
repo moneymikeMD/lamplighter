@@ -13,19 +13,33 @@ services:
       timeout: 3s
       retries: 10
 
+  init:
+    image: ghcr.io/moneymikemd/lamplighter:${LAMPLIGHTER_VERSION:-latest}
+    user: "0:0"
+    entrypoint: ["sh", "-c", "touch /state/keys && chmod 600 /state/keys && chown 10001 /state /state/keys /home/lampl/.cache"]
+    volumes:
+      - state:/state
+      - models:/home/lampl/.cache
+    restart: "no"
+
   lampl:
     image: ghcr.io/moneymikemd/lamplighter:${LAMPLIGHTER_VERSION:-latest}
-    command: ["serve"]
+    command: ["serve", "--listen", "0.0.0.0:7878"]
     environment:
-      DATABASE_URL: postgres://lamplighter:${LAMPLIGHTER_DB_PASSWORD}@postgres:5432/lamplighter
+      LAMPL_DATABASE_URL: postgres://lamplighter:${LAMPLIGHTER_DB_PASSWORD}@postgres:5432/lamplighter
+      LAMPL_KEYS_FILE: /state/keys
     ports:
-      - "8080:8080"
+      - "127.0.0.1:7878:7878"
     volumes:
+      - state:/state
       - models:/home/lampl/.cache
     depends_on:
       postgres:
         condition: service_healthy
+      init:
+        condition: service_completed_successfully
 
 volumes:
   pgdata:
+  state:
   models:
