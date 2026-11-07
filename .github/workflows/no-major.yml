@@ -1,0 +1,53 @@
+name: no-major
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  no-major:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - name: No breaking-change marker may reach main
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          policy() {
+            printf 'no-major: %s carries a breaking-change marker.\n\n' "$1" >&2
+            printf '%s\n' \
+              'Every repo here is capped below its next major. release-please reads a' \
+              '"!" after the type or scope, and a BREAKING-CHANGE footer, as a major' \
+              'bump, so neither may reach main. Use a plain feat: or fix: and describe' \
+              'the incompatibility in the commit body as prose.' >&2
+            exit 1
+          }
+          has_marker() {
+            local msg=$1 subject=${1%%$'\n'*}
+            if grep -qE '^[A-Za-z]+(\([^)]*\))?!:' <<<"$subject"; then return 0; fi
+            if grep -qE '^BREAKING[ -]CHANGE:' <<<"$msg"; then return 0; fi
+            return 1
+          }
+          if [ -n "${PR_TITLE:-}" ]; then
+            if has_marker "$PR_TITLE"; then policy 'the pull request title'; fi
+            for sha in $(git log --format=%H "$BASE_SHA..$HEAD_SHA"); do
+              if has_marker "$(git log -1 --format=%B "$sha")"; then
+                policy "commit $sha"
+              fi
+            done
+          else
+            if has_marker "$(git log -1 --format=%B "$PUSH_SHA")"; then
+              policy "commit $PUSH_SHA"
+            fi
+          fi
+          echo 'no-major: ok'
