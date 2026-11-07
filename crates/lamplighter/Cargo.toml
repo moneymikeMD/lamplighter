@@ -1,0 +1,15 @@
+[package]
+name = "lamplighter"
+description = "Agent memory as one binary; name-holder crate that re-exports lampl"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+lampl = { path = "../lampl", version = "0.1.0" }

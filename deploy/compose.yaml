@@ -1,0 +1,31 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg17@sha256:7d0a41464797aeb9862dfdc0bbf1526b82cfd324cdd8036df19e3545f4a9ccb8
+    environment:
+      POSTGRES_USER: lamplighter
+      POSTGRES_DB: lamplighter
+      POSTGRES_PASSWORD: ${LAMPLIGHTER_DB_PASSWORD:?set LAMPLIGHTER_DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lamplighter -d lamplighter"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  lampl:
+    image: ghcr.io/moneymikemd/lamplighter:${LAMPLIGHTER_VERSION:-latest}
+    command: ["serve"]
+    environment:
+      DATABASE_URL: postgres://lamplighter:${LAMPLIGHTER_DB_PASSWORD}@postgres:5432/lamplighter
+    ports:
+      - "8080:8080"
+    volumes:
+      - models:/home/lampl/.cache
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  models:
