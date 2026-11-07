@@ -1,0 +1,5 @@
+comment = 'lamplighter: embeds memories inside Postgres (experimental)'
+default_version = '@CARGO_VERSION@'
+module_pathname = '$libdir/lampl_pg_ext'
+relocatable = false
+superuser = true
