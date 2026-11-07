@@ -16,6 +16,8 @@ struct Cli {
 enum Command {
     /// Measure embedding latency on this machine
     BenchEmbed(cmd_bench_embed::Args),
+    /// Run the HTTP API server
+    Serve(lampl::serve::Cmd),
     /// Choose local (embedded) or server mode; the only way a store is created
     Init(local::InitArgs),
     /// Store a memory in the configured local store
@@ -28,6 +30,7 @@ fn main() {
     let cli = Cli::parse();
     let result = match cli.command {
         Command::BenchEmbed(args) => cmd_bench_embed::run(args),
+        Command::Serve(args) => lampl::serve::run(args),
         Command::Init(args) => local::init(args),
         Command::Store(args) => local::store(args),
         Command::Recall(args) => local::recall(args),
