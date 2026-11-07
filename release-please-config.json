@@ -6,6 +6,7 @@
       "release-type": "simple",
       "package-name": "lamplighter",
       "include-component-in-tag": false,
+      "release-as": "0.1.0",
       "changelog-path": "CHANGELOG.md",
       "extra-files": [
         { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.package.version" },
