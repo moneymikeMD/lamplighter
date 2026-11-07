@@ -2,8 +2,8 @@
 
 ## Reporting a vulnerability
 
-Please do not describe a vulnerability in a public issue. Use GitHub's "Report a vulnerability" button on the repository's Security tab if it is offered. If it is not, open an issue that says you have
-a security report and asks for a private way to send it, without any detail of the flaw, and the maintainer will arrange one.
+Please do not describe a vulnerability in a public issue. Report it privately through GitHub's private vulnerability reporting:
+[Report a vulnerability](https://github.com/moneymikeMD/lamplighter/security/advisories/new).
 
 ## Model
 
