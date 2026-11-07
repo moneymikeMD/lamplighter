@@ -32,6 +32,28 @@ jobs:
           if [ "$(uname)" = Darwin ]; then linked=$(otool -L target/release/lampl); else linked=$(ldd target/release/lampl); fi
           echo "$linked"
           ! grep -qi onnxruntime <<<"$linked"
+  store-pg:
+    name: store-pg (pgvector)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17@sha256:7d0a41464797aeb9862dfdc0bbf1526b82cfd324cdd8036df19e3545f4a9ccb8
+        env:
+          POSTGRES_PASSWORD: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      LAMPL_TEST_DATABASE_URL: postgres://postgres:test@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2.9.3
+      - run: cargo test -p lampl-core -p lampl-store-pg -- --nocapture
   lint:
     name: lint
     runs-on: ubuntu-latest

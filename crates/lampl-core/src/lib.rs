@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! Stub for lampl-core.
+//! Memory model, reciprocal-rank fusion and relevance floor for lamplighter. No I/O.
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn compiles() {}
-}
+mod model;
+mod ranking;
+
+pub use model::{
+    EMBEDDING_DIM, Embedding, Link, LinkType, Memory, MemoryType, NewMemory, ParseError,
+};
+pub use ranking::{Floor, RRF_K, fts_coverage, idf, passes_floor, query_terms, rrf_fuse};
