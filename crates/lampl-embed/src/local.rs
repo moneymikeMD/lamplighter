@@ -59,6 +59,15 @@ pub struct LocalEmbedder {
     digest: String,
 }
 
+impl std::fmt::Debug for LocalEmbedder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LocalEmbedder")
+            .field("repo_id", &self.repo_id)
+            .field("digest", &self.digest)
+            .finish_non_exhaustive()
+    }
+}
+
 impl LocalEmbedder {
     /// Loads from the local cache only; returns `ModelMissing` if any file is absent and never opens a socket.
     pub fn load(cfg: &LocalConfig) -> Result<Self, EmbedError> {
@@ -74,6 +83,8 @@ impl LocalEmbedder {
             serde_json::from_slice(&std::fs::read(&config_path).map_err(load_err)?)
                 .map_err(load_err)?;
         let device = Device::Cpu;
+        // candle's safetensors loader mmaps the weights; the cache file must not be modified while loaded.
+        #[allow(unsafe_code)]
         let vb = unsafe {
             VarBuilder::from_mmaped_safetensors(
                 std::slice::from_ref(&weights_path),

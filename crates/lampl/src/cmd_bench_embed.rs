@@ -12,7 +12,7 @@ use lampl_embed::{
 };
 
 #[derive(ClapArgs)]
-pub struct Args {
+pub(crate) struct Args {
     /// JSONL file of {"bucket": "...", "text": "..."} lines
     #[arg(long)]
     texts: PathBuf,
@@ -37,7 +37,7 @@ struct Item {
     text: String,
 }
 
-pub fn run(args: Args) -> Result<(), String> {
+pub(crate) fn run(args: Args) -> Result<(), String> {
     let items = read_items(&args.texts)?;
     let mut cfg = LocalConfig::default();
     if let Some(dir) = args.cache_dir {
@@ -79,14 +79,12 @@ pub fn run(args: Args) -> Result<(), String> {
     );
     println!(
         "threads: {}",
-        std::thread::available_parallelism()
-            .map(|n| n.get())
-            .unwrap_or(1)
+        std::thread::available_parallelism().map_or(1, std::num::NonZero::get)
     );
     println!("model_load_ms: {load_ms:.0}");
     println!("texts: {}  passes: {}", items.len(), args.passes.max(1));
     for (bucket, mut ms) in samples {
-        ms.sort_by(|a, b| a.total_cmp(b));
+        ms.sort_by(f64::total_cmp);
         println!(
             "{bucket}: n={} p50_ms={:.1} p95_ms={:.1} max_ms={:.1}",
             ms.len(),
@@ -108,7 +106,7 @@ pub fn run(args: Args) -> Result<(), String> {
                         .zip(&theirs)
                         .map(|(a, b)| cosine(a, b))
                         .collect();
-                    cos.sort_by(|a, b| a.total_cmp(b));
+                    cos.sort_by(f32::total_cmp);
                     let mean = cos.iter().sum::<f32>() / cos.len() as f32;
                     println!(
                         "ollama_cosine: n={} mean={mean:.4} min={:.4} max={:.4}",

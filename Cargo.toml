@@ -21,3 +21,20 @@ thiserror = "2.0.21"
 ureq = { version = "3.5.1", features = ["json"] }
 dirs = "7.0.0"
 clap = { version = "4.6.7", features = ["derive"] }
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+cloned_instead_of_copied = "warn"
+explicit_iter_loop = "warn"
+manual_let_else = "warn"
+map_unwrap_or = "warn"
+match_wildcard_for_single_variants = "warn"
+needless_pass_by_value = "warn"
+redundant_closure_for_method_calls = "warn"
+semicolon_if_nothing_returned = "warn"
+uninlined_format_args = "warn"
