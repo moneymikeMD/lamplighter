@@ -62,6 +62,9 @@ pub(crate) struct RecallArgs {
     /// Skip embedding; recall by full text only
     #[arg(long)]
     pub(crate) no_embed: bool,
+    /// Print one `{"hits": [...], "warning": ...}` object; an empty recall is `{"hits": []}`
+    #[arg(long)]
+    pub(crate) json: bool,
 }
 
 impl RecallArgs {
@@ -72,6 +75,7 @@ impl RecallArgs {
             project,
             limit,
             no_embed: false,
+            json: false,
         }
     }
 

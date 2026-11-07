@@ -69,6 +69,10 @@ pub(crate) fn store_value(args: local::StoreArgs) -> Result<Value, String> {
 
 pub(crate) fn recall(args: &local::RecallArgs) -> Result<(), String> {
     let out = recall_hits(args)?;
+    if args.json {
+        print(&json!({"hits": out.hits, "warning": out.warning}));
+        return Ok(());
+    }
     if let Some(w) = out.warning {
         eprintln!("lampl: warning: {w}");
     }

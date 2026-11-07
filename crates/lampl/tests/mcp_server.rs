@@ -2,7 +2,8 @@
 
 //! `lampl mcp` advertises the schema enums and surfaces every failure as a tool error.
 
-use std::io::Write;
+use std::io::{BufRead, BufReader, Read, Write};
+use std::net::TcpListener;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
@@ -22,6 +23,7 @@ fn session(dir: &Path, calls: &[(&str, Value)]) -> Vec<Value> {
         .env("LAMPL_CONFIG_DIR", dir)
         .env("LAMPL_DATA_DIR", dir)
         .env_remove("LAMPL_SERVER")
+        .env("LAMPL_API_KEY", "test-key")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -173,4 +175,74 @@ fn local_mode_get_link_related_say_they_need_a_server() {
     let id = "00000000-0000-0000-0000-000000000001";
     let msgs = session(d.path(), &[tool_call("get", &json!({"id": id}))]);
     assert!(error_text(&msgs, 1).contains("needs a server"));
+}
+
+fn stub_server() -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    std::thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            let mut reader = BufReader::new(stream);
+            let mut request_line = String::new();
+            if reader.read_line(&mut request_line).unwrap_or(0) == 0 {
+                continue;
+            }
+            let mut length = 0;
+            loop {
+                let mut h = String::new();
+                reader.read_line(&mut h).unwrap();
+                if h.trim().is_empty() {
+                    break;
+                }
+                if let Some(v) = h.to_ascii_lowercase().strip_prefix("content-length:") {
+                    length = v.trim().parse().unwrap();
+                }
+            }
+            let mut body = vec![0; length];
+            reader.read_exact(&mut body).unwrap();
+            let reply = if request_line.contains("/v1/recall") {
+                json!({"mode":"full-text","hits":[{"memory":{"title":"seeded"},"score":1.0,"cosine":null,"coverage":1.0}]})
+            } else if request_line.contains("/v1/memories") {
+                json!({"id":"00000000-0000-0000-0000-000000000009","title":"t"})
+            } else {
+                json!({"ok":true})
+            }
+            .to_string();
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nx-lampl-api-version: 1\r\ncontent-type: application/json\r\nconnection: close\r\ncontent-length: {}\r\n\r\n{reply}",
+                reply.len()
+            );
+            reader.get_mut().write_all(response.as_bytes()).unwrap();
+        }
+    });
+    url
+}
+
+#[test]
+fn recall_and_store_succeed_against_a_server_with_clean_json_rpc_stdout() {
+    let d = tempfile::tempdir().unwrap();
+    let url = stub_server();
+    let init = Command::new(env!("CARGO_BIN_EXE_lampl"))
+        .args(["init", "--server", &url])
+        .env("LAMPL_CONFIG_DIR", d.path())
+        .env("LAMPL_DATA_DIR", d.path())
+        .status()
+        .unwrap();
+    assert!(init.success());
+    let msgs = session(
+        d.path(),
+        &[
+            tool_call("recall", &json!({"query": "seeded"})),
+            tool_call("store", &json!({"title": "t", "body": "b"})),
+        ],
+    );
+    assert!(msgs.iter().all(|m| m["jsonrpc"] == "2.0"), "{msgs:?}");
+    let recall = &reply(&msgs, 1)["result"];
+    assert_ne!(recall["isError"], true, "{recall}");
+    let payload: Value =
+        serde_json::from_str(recall["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(payload["hits"][0]["memory"]["title"], "seeded");
+    assert!(payload["warning"].as_str().unwrap().contains("full-text"));
+    let stored = &reply(&msgs, 2)["result"];
+    assert_ne!(stored["isError"], true, "{stored}");
 }

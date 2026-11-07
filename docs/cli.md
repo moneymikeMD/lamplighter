@@ -17,7 +17,7 @@ The `lampl` client talks to `lampl serve` and fails closed: an unreachable serve
 | Command | What it does |
 | --- | --- |
 | `store --title T --body B [--type fact] [--tags a,b] [--project P] [--importance 0.5]` | Store a memory; the server embeds it in the background |
-| `recall QUERY` or `recall --query QUERY [--project P] [--limit N]` | One JSON hit per line; warns on stderr when the server could only do full-text |
+| `recall QUERY` or `recall --query QUERY [--project P] [--limit N] [--json]` | One JSON hit per line; warns on stderr when the server could only do full-text. `--json` prints a single `{"hits": [...], "warning": null}` object instead, so an empty recall is `{"hits": []}` rather than no output |
 | `get ID` / `related ID` | Read a memory, or its links in both directions |
 | `link FROM TO TYPE [--strength 1.0]` | `SUPERSEDES`, `SOLVES`, `CAUSES`, `CONTRADICTS` |
 | `doctor [--json] [--fetch-model]` | Server URL, store host, schema version, memory count, embed mode, vector coverage, degraded flag; exits non-zero on any problem. `--fetch-model` is the only place the embedding model is downloaded |
