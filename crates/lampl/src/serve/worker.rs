@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! Background embedding: a plain tokio task claiming unembedded rows with `FOR UPDATE SKIP LOCKED`.
+//! Background embedding: a plain tokio task that claims unembedded rows under a short lease, embeds outside any transaction, then writes the vectors in a second short transaction.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -13,6 +13,8 @@ use uuid::Uuid;
 use super::AppState;
 
 const BATCH: i64 = 16;
+/// How long a claimed row stays reserved; a worker that dies mid-batch leaves rows reclaimable after this.
+const LEASE: Duration = Duration::from_secs(300);
 const PROBE_EVERY: Duration = Duration::from_secs(60);
 const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 const RETRY_FAILED_EVERY: Duration = Duration::from_secs(600);
@@ -51,22 +53,35 @@ pub async fn embed_pending(state: &AppState) -> Result<usize, WorkerError> {
     Ok(embed_batch(state).await?.embedded)
 }
 
+async fn release_claims(state: &AppState, ids: &[Uuid]) {
+    if let Err(e) = sqlx::query("UPDATE memories SET embed_claimed_until = NULL WHERE id = ANY($1)")
+        .bind(ids)
+        .execute(state.store.pool())
+        .await
+    {
+        tracing::warn!(error = %e, "could not release embedding claims; they lapse with the lease");
+    }
+}
+
 async fn embed_batch(state: &AppState) -> Result<Batch, WorkerError> {
     let skip: Vec<Uuid> = state
         .failed
         .lock()
         .map(|f| f.iter().copied().collect())
         .unwrap_or_default();
-    let mut tx = state.store.pool().begin().await?;
     let rows = sqlx::query(
-        "SELECT id, title, body FROM memories \
-         WHERE (embedding IS NULL OR embedding_digest IS DISTINCT FROM $1) AND NOT (id = ANY($3)) \
-         ORDER BY id LIMIT $2 FOR UPDATE SKIP LOCKED",
+        "UPDATE memories SET embed_claimed_until = now() + make_interval(secs => $4) \
+         WHERE id IN (SELECT id FROM memories \
+             WHERE (embedding IS NULL OR embedding_digest IS DISTINCT FROM $1) AND NOT (id = ANY($3)) \
+               AND (embed_claimed_until IS NULL OR embed_claimed_until < now()) \
+             ORDER BY id LIMIT $2 FOR UPDATE SKIP LOCKED) \
+         RETURNING id, title, body",
     )
     .bind(state.embedder.model_digest())
     .bind(BATCH)
     .bind(&skip)
-    .fetch_all(&mut *tx)
+    .bind(LEASE.as_secs_f64())
+    .fetch_all(state.store.pool())
     .await?;
     if rows.is_empty() {
         return Ok(Batch {
@@ -81,6 +96,20 @@ async fn embed_batch(state: &AppState) -> Result<Batch, WorkerError> {
         let (title, body): (String, String) = (row.try_get("title")?, row.try_get("body")?);
         texts.push(format!("{title}\n\n{body}"));
     }
+    match embed_and_write(state, &ids, texts).await {
+        Ok(batch) => Ok(batch),
+        Err(e) => {
+            release_claims(state, &ids).await;
+            Err(e)
+        }
+    }
+}
+
+async fn embed_and_write(
+    state: &AppState,
+    ids: &[Uuid],
+    texts: Vec<String>,
+) -> Result<Batch, WorkerError> {
     let whole = embed_texts(state, texts.clone()).await;
     let results: Vec<Option<Vec<f32>>> = match whole {
         Ok(v) if v.len() == ids.len() => v.into_iter().map(Some).collect(),
@@ -113,6 +142,7 @@ async fn embed_batch(state: &AppState) -> Result<Batch, WorkerError> {
         embedded: 0,
         failed: 0,
     };
+    let mut tx = state.store.pool().begin().await?;
     for (id, vector) in ids.iter().zip(&results) {
         let Some(vector) = vector
             .as_ref()
@@ -122,11 +152,15 @@ async fn embed_batch(state: &AppState) -> Result<Batch, WorkerError> {
             if let Ok(mut f) = state.failed.lock() {
                 f.insert(*id);
             }
+            sqlx::query("UPDATE memories SET embed_claimed_until = NULL WHERE id = $1")
+                .bind(id)
+                .execute(&mut *tx)
+                .await?;
             batch.failed += 1;
             continue;
         };
         sqlx::query(
-            "UPDATE memories SET embedding = $2, embedding_model = $3, embedding_digest = $4 WHERE id = $1",
+            "UPDATE memories SET embedding = $2, embedding_model = $3, embedding_digest = $4, embed_claimed_until = NULL WHERE id = $1",
         )
         .bind(id)
         .bind(HalfVector::from_f32_slice(vector))

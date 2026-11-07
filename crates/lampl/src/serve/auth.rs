@@ -8,6 +8,7 @@ use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant, SystemTime};
 
 use axum::extract::{Request, State};
+use axum::http::StatusCode;
 use axum::http::header::{AUTHORIZATION, WWW_AUTHENTICATE};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
@@ -30,6 +31,8 @@ pub enum KeyError {
     Malformed { line: usize },
     #[error("keys file {} holds no keys; refusing to serve without authentication", .path.display())]
     Empty { path: PathBuf },
+    #[error("keys file {} is readable by group or others (mode {mode:o}); run `chmod 600` on it", .path.display())]
+    Permissions { path: PathBuf, mode: u32 },
     #[error("client name must be non-empty, contain no whitespace and not start with `#`")]
     BadName,
     #[error("a key for `{0}` already exists; revoke it first")]
@@ -44,6 +47,7 @@ struct Loaded {
     mtime: Option<SystemTime>,
     checked: Instant,
     by_hash: HashMap<String, String>,
+    failed: bool,
 }
 
 pub struct KeyStore {
@@ -126,7 +130,7 @@ fn parse_names(lines: &[String]) -> Result<Vec<String>, KeyError> {
 
 fn write_lines(path: &Path, lines: &[String]) -> Result<(), KeyError> {
     use std::io::Write;
-    use std::os::unix::fs::OpenOptionsExt;
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
     let io = |source| KeyError::Read {
         path: path.to_owned(),
         source,
@@ -138,6 +142,8 @@ fn write_lines(path: &Path, lines: &[String]) -> Result<(), KeyError> {
         .truncate(true)
         .mode(0o600)
         .open(&tmp)
+        .map_err(io)?;
+    f.set_permissions(std::fs::Permissions::from_mode(0o600))
         .map_err(io)?;
     let mut text = lines.join("\n");
     if !text.is_empty() {
@@ -173,6 +179,25 @@ fn parse(text: &str) -> Result<HashMap<String, String>, KeyError> {
     Ok(by_hash)
 }
 
+fn check_mode(path: &Path) -> Result<(), KeyError> {
+    use std::os::unix::fs::PermissionsExt;
+    let mode = std::fs::metadata(path)
+        .map_err(|source| KeyError::Read {
+            path: path.to_owned(),
+            source,
+        })?
+        .permissions()
+        .mode()
+        & 0o777;
+    if mode & 0o077 != 0 {
+        return Err(KeyError::Permissions {
+            path: path.to_owned(),
+            mode,
+        });
+    }
+    Ok(())
+}
+
 fn mtime(path: &Path) -> Option<SystemTime> {
     std::fs::metadata(path).and_then(|m| m.modified()).ok()
 }
@@ -183,6 +208,7 @@ impl KeyStore {
             path: path.to_owned(),
             source,
         })?;
+        check_mode(path)?;
         let by_hash = parse(&text)?;
         if by_hash.is_empty() {
             return Err(KeyError::Empty {
@@ -195,6 +221,7 @@ impl KeyStore {
                 mtime: mtime(path),
                 checked: Instant::now(),
                 by_hash,
+                failed: false,
             }),
         })
     }
@@ -212,7 +239,7 @@ impl KeyStore {
         };
         loaded.checked = Instant::now();
         let current = mtime(&self.path);
-        if current == loaded.mtime {
+        if current == loaded.mtime && !loaded.failed {
             return;
         }
         match std::fs::read_to_string(&self.path)
@@ -222,10 +249,22 @@ impl KeyStore {
             Ok(by_hash) => {
                 loaded.by_hash = by_hash;
                 loaded.mtime = current;
+                loaded.failed = false;
                 tracing::info!(keys = loaded.by_hash.len(), "keys file reloaded");
             }
-            Err(e) => tracing::error!(error = %e, "keys file reload failed; keeping previous keys"),
+            Err(e) => {
+                loaded.by_hash.clear();
+                loaded.mtime = current;
+                loaded.failed = true;
+                tracing::error!(error = %e, "keys file reload failed; refusing all keyed requests until it is fixed");
+            }
         }
+    }
+
+    /// True while the last reload of the keys file failed and every key is refused; checks the file first.
+    pub fn is_failed(&self) -> bool {
+        self.refresh();
+        self.inner.read().is_ok_and(|l| l.failed)
     }
 
     /// Returns the client name for a valid key.
@@ -236,11 +275,27 @@ impl KeyStore {
     }
 }
 
+fn keys_unavailable() -> Response {
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        axum::Json(serde_json::json!({
+            "status": "unavailable",
+            "degraded": true,
+            "api_version": super::API_VERSION,
+            "error": "keys file unreadable or invalid: all keyed requests are refused until it is fixed",
+        })),
+    )
+        .into_response()
+}
+
 pub(crate) async fn require_key(
     State(state): State<Arc<AppState>>,
     req: Request,
     next: Next,
 ) -> Response {
+    if req.uri().path() == "/health" && state.keys.is_failed() {
+        return keys_unavailable();
+    }
     let presented = req
         .headers()
         .get(AUTHORIZATION)
