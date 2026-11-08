@@ -21,8 +21,8 @@ Rust, three run modes, and a Claude Code plugin that wires hooks, MCP and a skil
 - **one binary, three ways to run it** — embedded SQLite on your laptop, `lampl serve` over Postgres with pgvector for a team, or an external Postgres you already run. The release binary is about 22
   MB.
 
-Every number above is a measurement on a private gold set from one author's store, with the method and the caveats in [Benchmarks](#benchmarks). The public LongMemEval run is not finished, and this
-README says so there.
+Every number above is a measurement on a private gold set from one author's store, with the method and the caveats in [Benchmarks](#benchmarks). The public LongMemEval run is retrieval-only, and its
+result, including a weakness it exposed in the shipped floor, is stated there.
 
 ## What this is
 
@@ -123,10 +123,12 @@ A memory that is the target of `SUPERSEDES` stops appearing in recall and in `au
 | Ingest cost | mem0 $0.0135, Graphiti $0.0516 per memory | Haiku 4.5 list price over all 1,469 memories, failed attempts included. lamplighter makes no LLM call. |
 | Relevance floor (LAMP-19) | recall@5 0.828 to 0.840, abstain-correct 0/19 to 9/19 | Private 138-query set over 2,658 memories. Only 19 no-answer queries, so one query moves the result 5 points. |
 | End to end (Stage B) | correct 12.9% to 78.5% (Opus 5.5), 8.6% to 52.7% (Sonnet 5) | 4,117 headless Claude Code sessions, 31 items, 3 repeats, a Haiku 4.5 judge. Questions come from the same author's incident history. Detectable difference is about 20 points. |
-| Public LongMemEval | **not run in full** | `lampl-bench` exists and a 6-question smoke run scored recall@5 0.667. That is a harness check, not a result. |
+| Public LongMemEval, shipped floor (retrieval only) | recall@5 0.591, MRR 0.588 | All 470 questions, every session of each haystack (116,728 memories), Qwen3-Embedding-0.6B in-process. **The shipped floor returns nothing on 176 of 470 questions** (median 1 result), so the floor, not the ranking, limits this row. |
+| Public LongMemEval, floor off (retrieval only) | recall@5 0.977, MRR 0.914 | Same run, same stored memories and vectors, relevance floor disabled by a benchmark-only server override. A diagnostic, not the shipped configuration; the right floor for conversational retrieval is not yet calibrated. |
 
 All gold sets are private, so only aggregates are published. mem0 and Graphiti were run by us on our corpus; their own published numbers are self-reported and measure different things, so none are
-repeated here. Details and the reproduce command: [docs/benchmarks.md](docs/benchmarks.md).
+repeated here. The LongMemEval rows measure retrieval of the right session only: there is no LLM answer step, so they are not comparable to end-to-end LongMemEval accuracy. Method, by-type tables, caveats and the
+reproduce command: [docs/bench/public](docs/bench/public/README.md). Other details: [docs/benchmarks.md](docs/benchmarks.md).
 
 ## Feature comparison
 
