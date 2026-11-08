@@ -1,9 +1,13 @@
 # Ranking
 
 Recall is hybrid: Postgres `tsvector` full-text and pgvector cosine (`halfvec(1024)`, `<=>`) each return their top 50 candidates among non-superseded memories, which are merged by reciprocal-rank fusion
-(`score = Σ 1 / (60 + rank)`, in `lampl-core::rrf_fuse`), then cut by a relevance floor. A memory that is the target of a `SUPERSEDES` link is excluded from both arms.
+(`score = Σ 1 / (60 + rank)`, in `lampl-core::rrf_fuse`), then cut by a relevance floor. The survivors are ordered by cosine plus IDF coverage (`lampl-core::relevance`); fusion only chooses the candidates. A memory that is the target of a `SUPERSEDES` link is excluded from both arms.
 
 The full-text arm ORs the stemmed query terms (`plainto_tsquery` with `&` rewritten to `|`) and orders by `ts_rank_cd`. Without a query embedding, recall runs full-text only.
+
+The query is lower-cased, so recall does not depend on query case: full-text matching already folds case, and the embedding leg embeds `Instruct: <task>\nQuery:` followed by the lower-cased query, the form Qwen3-Embedding is trained
+for. Stored memories are embedded as written, without an instruction, so changing either does not need a re-embed. On the private 138-item gold set the top 5 changed with query case on 56 items before and on none after;
+hook recall@5 at the default floor moved from 0.894 to 0.906, and with the floor off from 0.908 to 0.951. LongMemEval at the default floor: recall@5 0.806 (was 0.811), MRR 0.800 (was 0.796), 66 of 470 queries empty (was 64).
 
 ## Relevance floor
 

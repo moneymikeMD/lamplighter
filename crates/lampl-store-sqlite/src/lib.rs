@@ -10,7 +10,7 @@ use std::sync::Once;
 use chrono::{DateTime, Utc};
 use lampl_core::{
     EMBEDDING_DIM, Floor, Link, LinkType, Memory, NewMemory, RRF_K, fts_coverage, idf,
-    passes_floor, query_terms, rrf_fuse,
+    passes_floor, query_terms, relevance, rrf_fuse,
 };
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use uuid::Uuid;
@@ -405,13 +405,18 @@ impl SqliteStore {
         let ids: Vec<Uuid> = fused.iter().map(|(id, _)| *id).collect();
         let coverage = self.coverage(&terms, &ids, q.project.as_deref())?;
 
-        let mut hits = Vec::new();
+        let mut ranked: Vec<(Uuid, f64, Option<f64>, f64)> = Vec::new();
         for (id, score) in fused {
             let cosine = cosines.get(&id).copied();
             let cov = coverage.get(&id).copied().unwrap_or(0.0);
-            if !passes_floor(q.floor, cosine, cov) {
-                continue;
+            if passes_floor(q.floor, cosine, cov) {
+                ranked.push((id, score, cosine, cov));
             }
+        }
+        ranked.sort_by(|a, b| relevance(b.2, b.3).total_cmp(&relevance(a.2, a.3)));
+
+        let mut hits = Vec::new();
+        for (id, score, cosine, cov) in ranked {
             if let Some(memory) = self.get(id)? {
                 hits.push(RecallHit {
                     memory,

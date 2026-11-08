@@ -7,7 +7,7 @@ pub(crate) mod config;
 use std::path::Path;
 
 use clap::Args as ClapArgs;
-use lampl_core::{Embedding, MemoryType, NewMemory};
+use lampl_core::{Embedding, MemoryType, NewMemory, query_embed_text};
 use lampl_embed::{Embedder, LocalConfig, LocalEmbedder, prepare};
 use lampl_store_sqlite::{RecallQuery, SqliteStore};
 
@@ -231,10 +231,10 @@ pub(crate) fn recall_hits(
     let mut warning = None;
     if !args.no_embed {
         match args.embed_timeout() {
-            None => q.embedding = Some(embed(args.text())?.vector),
+            None => q.embedding = Some(embed(&query_embed_text(args.text()))?.vector),
             Some(limit) => {
                 let (tx, rx) = std::sync::mpsc::channel();
-                let text = args.text().to_owned();
+                let text = query_embed_text(args.text());
                 std::thread::spawn(move || {
                     let _ = tx.send(embed(&text).map(|e| e.vector));
                 });
