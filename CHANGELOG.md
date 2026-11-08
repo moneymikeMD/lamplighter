@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.2.0](https://github.com/moneymikeMD/lamplighter/compare/v0.1.0...v0.2.0) (2026-11-08)
+
+
+### Features
+
+* **bench,embed:** checkpointed lampl-bench runs and an opt-in Metal embedder ([#22](https://github.com/moneymikeMD/lamplighter/issues/22)) ([fd54ba8](https://github.com/moneymikeMD/lamplighter/commit/fd54ba8e93852efa1048fcfc82276ffb71b23bfa))
+* **core:** lower the default relevance floor coverage from 0.24 to 0.18 (LAMP-21) ([#27](https://github.com/moneymikeMD/lamplighter/issues/27)) ([826e26c](https://github.com/moneymikeMD/lamplighter/commit/826e26c13fa4238e224e5c7579933ec02e748a80))
+
+
+### Bug Fixes
+
+* **core:** case-invariant recall, Qwen3 query instruction, cosine+coverage ordering (LAMP-23) ([#29](https://github.com/moneymikeMD/lamplighter/issues/29)) ([940a310](https://github.com/moneymikeMD/lamplighter/commit/940a31083f13bb20201a253c508401311c645537))
+* **core:** stop words no longer count against coverage; default floor 0.52/0.35 (LAMP-23) ([#30](https://github.com/moneymikeMD/lamplighter/issues/30)) ([53f37b1](https://github.com/moneymikeMD/lamplighter/commit/53f37b1b3ffc5ae5c835230a9c80892b4aabc2a5))
+
 ## 0.1.0 (2026-11-07)
 
 
