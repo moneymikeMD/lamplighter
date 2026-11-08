@@ -8,6 +8,7 @@ use axum::extract::{FromRequest, Path, Query, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use chrono::{DateTime, Utc};
+use lampl_core::Floor;
 use lampl_core::{Embedding, Link, LinkType, Memory, MemoryType, NewMemory};
 use lampl_store_pg::{Direction, RecallQuery};
 use pgvector::HalfVector;
@@ -209,6 +210,26 @@ pub(crate) struct RecallOut {
     hits: Vec<HitOut>,
 }
 
+/// Benchmarking only: `LAMPL_RECALL_FLOOR=off` or `<cosine>,<coverage>` replaces the default relevance floor; unset keeps the shipped default.
+fn floor_override() -> Option<Floor> {
+    static OVERRIDE: std::sync::OnceLock<Option<Floor>> = std::sync::OnceLock::new();
+    *OVERRIDE.get_or_init(|| {
+        let v = std::env::var("LAMPL_RECALL_FLOOR").ok()?;
+        let v = v.trim();
+        if v.eq_ignore_ascii_case("off") {
+            return Some(Floor {
+                cosine: f64::NEG_INFINITY,
+                coverage: 0.0,
+            });
+        }
+        let (c, v) = v.split_once(',')?;
+        Some(Floor {
+            cosine: c.trim().parse().ok()?,
+            coverage: v.trim().parse().ok()?,
+        })
+    })
+}
+
 pub(crate) async fn recall(
     State(state): State<Arc<AppState>>,
     Json(b): Json<RecallBody>,
@@ -216,6 +237,9 @@ pub(crate) async fn recall(
     let mut q = RecallQuery::new(b.query.clone());
     q.project = b.project;
     q.limit = b.limit.unwrap_or(10).clamp(1, MAX_LIMIT);
+    if let Some(f) = floor_override() {
+        q.floor = f;
+    }
     let embedded = if state.embed_status.is_ok() {
         let embedding = embed_texts(&state, vec![b.query]);
         match b.embed_timeout_ms {

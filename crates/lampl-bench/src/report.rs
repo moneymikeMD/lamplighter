@@ -19,6 +19,10 @@ pub(crate) struct Row {
     pub(crate) memories: usize,
     #[serde(default)]
     pub(crate) mode: String,
+    #[serde(default)]
+    pub(crate) hits: usize,
+    #[serde(default)]
+    pub(crate) sessions: usize,
 }
 
 #[derive(Debug, Serialize)]

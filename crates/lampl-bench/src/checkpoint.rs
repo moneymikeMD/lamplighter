@@ -83,6 +83,8 @@ mod tests {
             score: score(&["a".to_owned()], &["a".to_owned()]),
             memories: 3,
             mode: "hybrid".to_owned(),
+            hits: 0,
+            sessions: 0,
         }
     }
 

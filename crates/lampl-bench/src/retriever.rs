@@ -8,6 +8,7 @@ use crate::dataset::Question;
 pub(crate) struct Ranked {
     pub(crate) sessions: Vec<String>,
     pub(crate) mode: String,
+    pub(crate) hits: usize,
 }
 
 pub(crate) trait Retriever {

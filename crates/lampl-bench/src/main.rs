@@ -75,6 +75,9 @@ struct RunArgs {
     /// Append each scored question to this JSONL file and, if it already exists, skip the questions it holds; a resumed run may target a store that already holds memories
     #[arg(long)]
     checkpoint: Option<PathBuf>,
+    /// Re-rank questions already ingested by an earlier run (its id is the `lme-<id>-` project prefix) without ingesting or embedding documents; the store may be non-empty
+    #[arg(long)]
+    reuse_run: Option<String>,
     /// Seconds to wait for background embedding to finish
     #[arg(long, default_value_t = 7200)]
     wait_secs: u64,
@@ -135,9 +138,10 @@ fn run(a: &RunArgs) -> Result<(), String> {
     let mut arm = lamplighter::Lamplighter::connect(
         lamplighter::Options {
             base: a.server.trim_end_matches('/').to_owned(),
-            allow_nonempty: a.allow_nonempty || resumed > 0,
+            allow_nonempty: a.allow_nonempty || resumed > 0 || a.reuse_run.is_some(),
             allow_full_text: a.allow_full_text,
             wait: Duration::from_secs(a.wait_secs),
+            reuse_run: a.reuse_run.clone(),
         },
         key,
     )?;
@@ -152,8 +156,13 @@ fn run(a: &RunArgs) -> Result<(), String> {
             continue;
         }
         let started = std::time::Instant::now();
-        let stored = arm.ingest(q)?;
-        arm.settle()?;
+        let stored = if a.reuse_run.is_some() {
+            0
+        } else {
+            let n = arm.ingest(q)?;
+            arm.settle()?;
+            n
+        };
         let ranked = arm.rank(q)?;
         let row = report::Row {
             id: q.id.clone(),
@@ -161,6 +170,8 @@ fn run(a: &RunArgs) -> Result<(), String> {
             score: metrics::score(&ranked.sessions, &q.answer_session_ids),
             memories: stored,
             mode: ranked.mode,
+            hits: ranked.hits,
+            sessions: ranked.sessions.len(),
         };
         if let Some(c) = ckpt.as_mut() {
             c.append(row.clone())?;
@@ -173,7 +184,11 @@ fn run(a: &RunArgs) -> Result<(), String> {
             started.elapsed().as_secs_f64()
         );
     }
-    let memories = rows.iter().map(|r| r.memories).sum();
+    let memories = if a.reuse_run.is_some() {
+        arm.memory_count()?
+    } else {
+        rows.iter().map(|r| r.memories).sum()
+    };
     let modes: HashSet<String> = rows.iter().map(|r| r.mode.clone()).collect();
     let mut modes: Vec<String> = modes.into_iter().collect();
     modes.sort();

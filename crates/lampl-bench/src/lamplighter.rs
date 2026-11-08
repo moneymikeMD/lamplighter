@@ -20,6 +20,7 @@ pub(crate) struct Options {
     pub(crate) allow_nonempty: bool,
     pub(crate) allow_full_text: bool,
     pub(crate) wait: Duration,
+    pub(crate) reuse_run: Option<String>,
 }
 
 pub(crate) struct Lamplighter {
@@ -78,11 +79,15 @@ impl Lamplighter {
             .http_status_as_error(false)
             .build()
             .into();
+        let me_run = opts
+            .reuse_run
+            .clone()
+            .unwrap_or_else(|| format!("{:x}", std::process::id() as u64 ^ epoch_millis()));
         let mut me = Lamplighter {
             opts,
             key,
             agent,
-            run: format!("{:x}", std::process::id() as u64 ^ epoch_millis()),
+            run: me_run,
             info: Value::Null,
         };
         let health = me.health()?;
@@ -107,6 +112,10 @@ impl Lamplighter {
             "schema_version": health["schema_version"],
         });
         Ok(me)
+    }
+
+    pub(crate) fn memory_count(&self) -> Result<usize, String> {
+        Ok(self.health()?["memory_count"].as_u64().unwrap_or(0) as usize)
     }
 
     fn health(&self) -> Result<Value, String> {
@@ -223,8 +232,10 @@ impl Retriever for Lamplighter {
                 }
             }
         }
+        let hits = body["hits"].as_array().map_or(0, Vec::len);
         Ok(Ranked {
             sessions,
+            hits,
             mode: body["mode"].as_str().unwrap_or("unknown").to_owned(),
         })
     }
