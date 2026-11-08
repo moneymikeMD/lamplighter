@@ -9,6 +9,6 @@ pub use model::{
     EMBEDDING_DIM, Embedding, Link, LinkType, Memory, MemoryType, NewMemory, ParseError,
 };
 pub use ranking::{
-    Floor, RRF_K, fts_coverage, idf, passes_floor, query_embed_text, query_terms, relevance,
-    rrf_fuse,
+    Floor, PARITY_QUERIES, RRF_K, fts_coverage, idf, passes_floor, query_embed_text, query_terms,
+    relevance, rrf_fuse, term_stem,
 };

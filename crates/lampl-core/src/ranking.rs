@@ -3,6 +3,8 @@
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 
+use rust_stemmers::{Algorithm, Stemmer};
+
 pub const RRF_K: f64 = 60.0;
 
 /// Reciprocal-rank fusion over ranked id lists (best first); returns ids by descending fused score, ties broken by first appearance.
@@ -36,13 +38,177 @@ pub fn query_embed_text(query: &str) -> String {
     format!("{QUERY_INSTRUCTION}{}", query.to_lowercase())
 }
 
-/// Lowercased alphanumeric query terms of two or more characters, deduplicated, in order.
+/// Postgres's `english` text-search stop words, so a term that can never match is not counted.
+const STOP_WORDS: &[&str] = &[
+    "i",
+    "me",
+    "my",
+    "myself",
+    "we",
+    "our",
+    "ours",
+    "ourselves",
+    "you",
+    "your",
+    "yours",
+    "yourself",
+    "yourselves",
+    "he",
+    "him",
+    "his",
+    "himself",
+    "she",
+    "her",
+    "hers",
+    "herself",
+    "it",
+    "its",
+    "itself",
+    "they",
+    "them",
+    "their",
+    "theirs",
+    "themselves",
+    "what",
+    "which",
+    "who",
+    "whom",
+    "this",
+    "that",
+    "these",
+    "those",
+    "am",
+    "is",
+    "are",
+    "was",
+    "were",
+    "be",
+    "been",
+    "being",
+    "have",
+    "has",
+    "had",
+    "having",
+    "do",
+    "does",
+    "did",
+    "doing",
+    "a",
+    "an",
+    "the",
+    "and",
+    "but",
+    "if",
+    "or",
+    "because",
+    "as",
+    "until",
+    "while",
+    "of",
+    "at",
+    "by",
+    "for",
+    "with",
+    "about",
+    "against",
+    "between",
+    "into",
+    "through",
+    "during",
+    "before",
+    "after",
+    "above",
+    "below",
+    "to",
+    "from",
+    "up",
+    "down",
+    "in",
+    "out",
+    "on",
+    "off",
+    "over",
+    "under",
+    "again",
+    "further",
+    "then",
+    "once",
+    "here",
+    "there",
+    "when",
+    "where",
+    "why",
+    "how",
+    "all",
+    "any",
+    "both",
+    "each",
+    "few",
+    "more",
+    "most",
+    "other",
+    "some",
+    "such",
+    "no",
+    "nor",
+    "not",
+    "only",
+    "own",
+    "same",
+    "so",
+    "than",
+    "too",
+    "very",
+    "s",
+    "t",
+    "can",
+    "will",
+    "just",
+    "don",
+    "should",
+    "now",
+];
+
+/// The lexeme Postgres's `english` configuration gives a lower-cased token: dotted tokens such as hosts and numbers stay whole, other words are Snowball-stemmed.
+pub fn term_stem(term: &str) -> String {
+    if term.contains('.') || term.chars().all(|c| c.is_ascii_digit()) {
+        return term.to_owned();
+    }
+    Stemmer::create(Algorithm::English).stem(term).into_owned()
+}
+
+/// Queries both stores' term logic is checked against: Postgres's own lexemes must equal `term_stem` of `query_terms` for each.
+#[doc(hidden)]
+pub const PARITY_QUERIES: &[&str] = &[
+    "ssh: connect to host github.com port 22: Operation timed out",
+    "Failed connections to the docker daemon were retried",
+    "Running migrations on postgres 17.2, ports and sockets",
+    "the and of to",
+    "Errors: ERROR_CODE 404 not found, errors again",
+    "Why does the Kubernetes scheduler keep restarting pods?",
+];
+
+/// Lower-cased query terms in order, mirroring Postgres `to_tsvector('english', ..)`: stop words dropped and terms with the same stem collapsed. A `.` between alphanumerics stays inside the term, as in a host name.
 pub fn query_terms(query: &str) -> Vec<String> {
+    let chars: Vec<char> = query.to_lowercase().chars().collect();
+    let mut tokens: Vec<String> = Vec::new();
+    let mut cur = String::new();
+    for (i, &c) in chars.iter().enumerate() {
+        let inner_dot =
+            c == '.' && !cur.is_empty() && chars.get(i + 1).is_some_and(|n| n.is_alphanumeric());
+        if c.is_alphanumeric() || inner_dot {
+            cur.push(c);
+        } else if !cur.is_empty() {
+            tokens.push(std::mem::take(&mut cur));
+        }
+    }
+    if !cur.is_empty() {
+        tokens.push(cur);
+    }
     let mut seen = HashSet::new();
-    query
-        .split(|c: char| !c.is_alphanumeric())
-        .map(str::to_lowercase)
-        .filter(|t| t.chars().count() >= 2 && seen.insert(t.clone()))
+    tokens
+        .into_iter()
+        .filter(|t| !STOP_WORDS.contains(&t.as_str()) && seen.insert(term_stem(t)))
         .collect()
 }
 
@@ -91,6 +257,14 @@ pub fn passes_floor(floor: Floor, cosine: Option<f64>, coverage: f64) -> bool {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn hosts_stay_whole_and_plurals_collapse() {
+        assert_eq!(
+            query_terms("connect to github.com on port 22: ports connected."),
+            ["connect", "github.com", "port", "22"]
+        );
+    }
+
+    #[test]
     fn query_embed_text_ignores_case() {
         assert_eq!(
             super::query_embed_text("Fix THE Build"),
@@ -118,10 +292,10 @@ mod tests {
     }
 
     #[test]
-    fn terms_are_lowercased_deduplicated_and_short_words_dropped() {
+    fn terms_are_lowercased_deduplicated_and_stop_words_dropped() {
         assert_eq!(
             query_terms("The Postgres, postgres a DB!"),
-            ["the", "postgres", "db"]
+            ["postgres", "db"]
         );
     }
 

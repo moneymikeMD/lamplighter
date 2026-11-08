@@ -3,7 +3,9 @@
 Recall is hybrid: Postgres `tsvector` full-text and pgvector cosine (`halfvec(1024)`, `<=>`) each return their top 50 candidates among non-superseded memories, which are merged by reciprocal-rank fusion
 (`score = Σ 1 / (60 + rank)`, in `lampl-core::rrf_fuse`), then cut by a relevance floor. The survivors are ordered by cosine plus IDF coverage (`lampl-core::relevance`); fusion only chooses the candidates. A memory that is the target of a `SUPERSEDES` link is excluded from both arms.
 
-The full-text arm ORs the stemmed query terms (`plainto_tsquery` with `&` rewritten to `|`) and orders by `ts_rank_cd`. Without a query embedding, recall runs full-text only.
+The full-text arm ORs the query's lexemes and orders by `ts_rank_cd`. Postgres takes the lexemes from `to_tsvector('english', query)`: stop words dropped, stemmed, deduplicated, a dotted host such as `a.example.com` kept whole. The SQLite store builds the same term list in `lampl-core::query_terms` (the same stop-word list, Snowball English stemming, dotted tokens kept), and a test checks it against Postgres's lexemes, so the stores do not drift. Hyphenated and URL tokens are not covered by that test. A stop word can never match, so it carries no coverage weight.
+
+Coverage values changed with this fix (a query no longer loses weight to words that cannot match), so they run higher than the figures in the calibration sections below, which were measured before it. Without a query embedding, recall runs full-text only.
 
 The query is lower-cased, so recall does not depend on query case: full-text matching already folds case, and the embedding leg embeds `Instruct: <task>\nQuery:` followed by the lower-cased query, the form Qwen3-Embedding is trained
 for. Stored memories are embedded as written, without an instruction, so changing either does not need a re-embed. On the private 138-item gold set the top 5 changed with query case on 56 items before and on none after;
