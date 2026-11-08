@@ -6,15 +6,8 @@ on:
       subset:
         description: Question subset (ci or full)
         default: ci
-  pull_request:
-    paths:
-      - crates/lampl-core/src/ranking.rs
-      - crates/lampl-core/src/model.rs
-      - crates/lampl-store-pg/**
-      - crates/lampl-embed/**
-      - crates/lampl-bench/**
-      - docs/bench/public/**
-      - .github/workflows/bench.yml
+  schedule:
+    - cron: "17 5 * * *"
 
 permissions:
   contents: read

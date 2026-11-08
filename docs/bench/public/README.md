@@ -41,7 +41,7 @@ On Apple Silicon build the server with `cargo build --release -p lampl --feature
 
 ## CI
 
-`.github/workflows/bench.yml` runs `--subset ci` only for pull requests that touch ranking, embedding, storage or the harness paths, and on manual dispatch. It does not run on every push. The full set is never run in CI.
+`.github/workflows/bench.yml` runs `--subset ci` nightly and on manual dispatch (`workflow_dispatch`, with `subset` ci or full), not on pull requests: it takes about 30 minutes on CPU and its six questions cannot detect a quality change. Pull requests are covered by the ordinary `rust` and `store-pg` jobs, which build and test `lampl-bench`. The full set is never run in CI.
 
 ## Comparison arms
 
