@@ -71,12 +71,19 @@ Run on 2026-11-07, scored at the memory level (one memory per round, mapped back
 | Haystack | all sessions per question, 116,728 memories in total, one project per question |
 | Embedder | Qwen3-Embedding-0.6B, in-process, candle on Metal (Apple M2, 16 GB), input truncated at 512 tokens |
 | Recall | hybrid (full-text plus cosine, reciprocal-rank fusion), request limit 100 |
-| Shipped floor | keep a candidate when cosine >= 0.70 or IDF coverage >= 0.24 |
+| Default floor (LAMP-21) | keep a candidate when cosine >= 0.70 or IDF coverage >= 0.18 |
+| Previous default floor | cosine >= 0.70 or IDF coverage >= 0.24 (the shipped default until LAMP-21) |
 | Floor off | `LAMPL_RECALL_FLOOR=off` on the server (cosine and coverage thresholds removed); the vectors are the same, queries were re-run against the stored memories, nothing was re-embedded |
 
-Re-running the queries with the shipped floor reproduces the original full run to every printed digit.
+The first full run used the previous default floor; re-running its queries with that floor reproduced it to every printed digit. After the default became coverage 0.18, the queries were run again against the same stored memories on a server with no override.
 
-Shipped floor (cosine 0.70 or coverage 0.24):
+Default floor (cosine 0.70 or coverage 0.18):
+
+```
+
+```
+
+Previous default floor (cosine 0.70 or coverage 0.24):
 
 ```
                              n  any@1    any@3    any@5    any@10   all@1    all@3    all@5    all@10      MRR
@@ -102,7 +109,7 @@ single-session-user         64   0.812   0.953   0.984   0.984   0.812   0.953  
 temporal-reasoning         127   0.819   0.945   0.961   0.984   0.087   0.677   0.764   0.882   0.880
 ```
 
-recall@5 is 0.591 with the shipped floor and 0.977 with it off; MRR is 0.588 and 0.914.
+recall@5 is 0.811 with the default floor, 0.591 with the previous default and 0.977 with the floor off; MRR is 0.796, 0.588 and 0.914.
 
 #### Why the rows differ: the floor truncates
 
@@ -110,19 +117,21 @@ Results returned per question (rounds, then distinct sessions):
 
 | | Floor | Median rounds | Mean rounds | Questions with 0 rounds | Questions with 3 or fewer rounds | Median sessions |
 | --- | --- | --- | --- | --- | --- | --- |
-| All 470 | shipped | 1 | 1.4 | 176 | 420 | 1 |
+| All 470 | previous default (0.24) | 1 | 1.4 | 176 | 420 | 1 |
+| All 470 | default (0.18) | 2 | 3.0 | 64 | 312 | 2 |
 | All 470 | off | 83 | 82.3 | 0 | 0 | 33 |
-| 30-question sample (5 per type, lowest ids) | shipped | 1 | 1.5 | 10 | 27 | 1 |
+| 30-question sample (5 per type, lowest ids) | previous default (0.24) | 1 | 1.5 | 10 | 27 | 1 |
+| 30-question sample (5 per type, lowest ids) | default (0.18) | 3 | 3.4 | 6 | 17 | 2 |
 | 30-question sample (5 per type, lowest ids) | off | 82.5 | 81.9 | 0 | 0 | 34 |
 
-With the shipped floor 176 of 470 questions (37%) get nothing back, which is why `any@k` stops moving after k = 3: there is nothing left to rank. The floor was calibrated for short hook-style queries against a store of about 2,700 memories (see [ranking.md](../../ranking.md)); a LongMemEval question is a long natural-language sentence against about 250 memories per project, and the floor's cut-offs appear to reject most of the right answers (inferred from the counts above; the per-candidate cosine and coverage values were not examined). This benchmark therefore measures the floor as much as the ranking. `single-session-preference` is the worst case (median 0 rounds returned with the floor on). With the floor off the candidate pool is about 100 (50 full-text plus 50 vector, merged), so the figures above are bounded by that pool.
+With the previous default floor 176 of 470 questions (37%) got nothing back, which is why `any@k` stopped moving after k = 3: there was nothing left to rank. That floor had been calibrated for short hook-style queries against a store of about 2,700 memories (see [ranking.md](../../ranking.md)); a LongMemEval question is a long natural-language sentence against about 250 memories per project, which dilutes IDF coverage. LAMP-21 swept the floor on this run and on the private gold set and lowered coverage to 0.18 (sweep tables in ranking.md): 64 questions (14%) still get nothing back, and recall@5 rises from 0.591 to 0.811. `single-session-preference` remains the weakest type (recall@5 0.267). With the floor off the candidate pool is about 100 (50 full-text plus 50 vector, merged), so the floor-off figures are bounded by that pool.
 
 #### Caveats
 
 - Retrieval only. There is no LLM answer step and no judge, so these numbers are not comparable to end-to-end LongMemEval QA accuracy.
 - Scored at the memory level and mapped to sessions: a session counts as retrieved when any of its rounds ranks. `any@k` is over sessions.
 - One run, one seed, one machine. No confidence interval was computed; with 30 to 127 questions per type, one question moves a by-type figure by 0.008 to 0.033.
-- The floor-off row is a diagnostic. It is not the shipped configuration and is not a recommendation to change the default; the right floor for conversational retrieval has not been calibrated.
+- The floor-off row is a diagnostic, not a configuration to run: it returns about 83 results per question. The default floor trades some of the abstentions on the private gold set (5 of 19, down from 9 of 19) for a lower empty rate here; one gold query moves that figure by about 5 points.
 - Embedding input is truncated at 512 tokens, so a long round is represented by its start.
 - Metal and CPU vectors agree to cosine above 0.9999 on a 24-text sample, not on the full corpus.
 
@@ -151,7 +160,7 @@ export LAMPL_KEYS_FILE=<keys file from the first run>   # keep it; a key is prin
 export LAMPL_API_KEY=<that key>
 DB=postgres://postgres:bench@127.0.0.1:<mapped port>/postgres
 
-./target/release/lampl serve --database-url $DB --listen 127.0.0.1:7881 &                              # shipped floor
+./target/release/lampl serve --database-url $DB --listen 127.0.0.1:7881 &                              # default floor
 LAMPL_RECALL_FLOOR=off ./target/release/lampl serve --database-url $DB --listen 127.0.0.1:7882 &       # floor off
 LAMPL_RECALL_FLOOR=0.60,0.20 ./target/release/lampl serve --database-url $DB --listen 127.0.0.1:7883 &   # any <cosine>,<coverage>
 

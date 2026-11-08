@@ -36,7 +36,7 @@ Measured scores on this two-memory store:
 | sessions getting evicted from redis | the gotcha | 0.777 | 0.228 |
 | kubernetes ingress timeout | none | | |
 
-The third prints nothing: no candidate reached cosine 0.70 or coverage 0.24. Use `--json` to get `{"hits":[],"warning":null}` instead of silence. A short, vague query such as `where do we keep
+The third prints nothing: no candidate reached cosine 0.70 or coverage 0.18. Use `--json` to get `{"hits":[],"warning":null}` instead of silence. A short, vague query such as `where do we keep
 sessions` also returned nothing on this tiny store, because with two memories the inverse-document-frequency weights are near zero; phrase recall queries the way you would phrase a question about a
 past decision.
 
