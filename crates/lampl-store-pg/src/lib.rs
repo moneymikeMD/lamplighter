@@ -7,7 +7,7 @@ use std::collections::{HashMap, HashSet};
 use chrono::{DateTime, Utc};
 use lampl_core::{
     EMBEDDING_DIM, Floor, Link, LinkType, Memory, NewMemory, RRF_K, fts_coverage, idf,
-    passes_floor, query_terms, relevance, rrf_fuse,
+    passes_floor, relevance, rrf_fuse,
 };
 use pgvector::HalfVector;
 use sqlx::postgres::{PgPool, PgPoolOptions, PgRow};
@@ -254,9 +254,23 @@ impl PgStore {
             .collect()
     }
 
+    /// The lexemes Postgres's `english` configuration extracts from `text`: stop words dropped, stemmed, deduplicated.
+    pub async fn lexemes(&self, text: &str) -> Result<Vec<String>, StoreError> {
+        Ok(
+            sqlx::query_scalar("SELECT unnest(tsvector_to_array(to_tsvector('english', $1)))")
+                .bind(text)
+                .fetch_all(&self.pool)
+                .await?,
+        )
+    }
+
     /// Hybrid recall: full-text and cosine candidates fused by reciprocal rank, superseded memories excluded, then the relevance floor.
     pub async fn recall(&self, q: &RecallQuery) -> Result<Vec<RecallHit>, StoreError> {
-        let terms = query_terms(&q.text);
+        let terms: Vec<String> =
+            sqlx::query_scalar("SELECT unnest(tsvector_to_array(to_tsvector('english', $1)))")
+                .bind(&q.text)
+                .fetch_all(&self.pool)
+                .await?;
         if terms.is_empty() && q.embedding.is_none() {
             return Ok(Vec::new());
         }
@@ -275,12 +289,12 @@ impl PgStore {
         } else {
             let sql = format!(
                 "SELECT m.id FROM memories m, \
-                 (SELECT replace(plainto_tsquery('english', $2)::text, '&', '|')::tsquery AS tq) q \
+                 (SELECT array_to_string(ARRAY(SELECT quote_literal(x) FROM unnest($2::text[]) x), ' | ')::tsquery AS tq) q \
                  WHERE m.tsv @@ q.tq AND {active} ORDER BY ts_rank_cd(m.tsv, q.tq) DESC, m.id LIMIT $3"
             );
             sqlx::query_scalar(AssertSqlSafe(sql))
                 .bind(&q.project)
-                .bind(terms.join(" "))
+                .bind(&terms)
                 .bind(CANDIDATES)
                 .fetch_all(&self.pool)
                 .await?
@@ -370,7 +384,7 @@ impl PgStore {
         .await?;
         let df_rows = sqlx::query(
             "SELECT t.term, count(m.id) AS df FROM unnest($2::text[]) AS t(term) \
-             LEFT JOIN memories m ON m.tsv @@ plainto_tsquery('english', t.term) AND ($1::text IS NULL OR m.project = $1) \
+             LEFT JOIN memories m ON m.tsv @@ quote_literal(t.term)::tsquery AND ($1::text IS NULL OR m.project = $1) \
              GROUP BY t.term",
         )
         .bind(project)
@@ -390,7 +404,7 @@ impl PgStore {
 
         let match_rows = sqlx::query(
             "SELECT m.id, array_agg(t.term) AS matched FROM memories m \
-             JOIN unnest($1::text[]) AS t(term) ON m.tsv @@ plainto_tsquery('english', t.term) \
+             JOIN unnest($1::text[]) AS t(term) ON m.tsv @@ quote_literal(t.term)::tsquery \
              WHERE m.id = ANY($2) GROUP BY m.id",
         )
         .bind(terms)

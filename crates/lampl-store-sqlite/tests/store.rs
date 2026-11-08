@@ -262,3 +262,28 @@ fn tags_and_quotes_survive_and_odd_queries_do_not_error() {
             .is_ok()
     );
 }
+
+#[test]
+fn stop_words_do_not_count_against_coverage() {
+    let mut s = store();
+    let p = project();
+    let m = s
+        .store(new(
+            &p,
+            "docker daemon",
+            "the docker daemon restarted",
+            None,
+        ))
+        .unwrap();
+    let mut q = RecallQuery::new("the docker daemon to restart on a");
+    q.project = Some(p);
+    q.floor.cosine = 0.0;
+    q.floor.coverage = 0.0;
+    let hits = s.recall(&q).unwrap();
+    assert_eq!(hits[0].memory.id, m.id);
+    assert!(
+        (hits[0].coverage - 1.0).abs() < 1e-9,
+        "coverage {}",
+        hits[0].coverage
+    );
+}

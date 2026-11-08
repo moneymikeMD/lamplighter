@@ -263,3 +263,44 @@ async fn connect_tolerates_a_schema_newer_than_this_build() {
         .unwrap();
     assert!(reconnect.is_ok(), "{:?}", reconnect.err());
 }
+
+#[tokio::test]
+async fn query_terms_match_postgres_lexemes() {
+    let Some(s) = store().await else { return };
+    for text in lampl_core::PARITY_QUERIES {
+        let mut want = s.lexemes(text).await.unwrap();
+        want.sort();
+        let mut got: Vec<String> = lampl_core::query_terms(text)
+            .iter()
+            .map(|t| lampl_core::term_stem(t))
+            .collect();
+        got.sort();
+        assert_eq!(got, want, "lexemes differ for {text:?}");
+    }
+}
+
+#[tokio::test]
+async fn stop_words_do_not_count_against_coverage() {
+    let Some(s) = store().await else { return };
+    let p = project();
+    let m = s
+        .store(new(
+            &p,
+            "docker daemon",
+            "the docker daemon restarted",
+            None,
+        ))
+        .await
+        .unwrap();
+    let mut q = RecallQuery::new("the docker daemon to restart on a");
+    q.project = Some(p);
+    q.floor.cosine = 0.0;
+    q.floor.coverage = 0.0;
+    let hits = s.recall(&q).await.unwrap();
+    assert_eq!(hits[0].memory.id, m.id);
+    assert!(
+        (hits[0].coverage - 1.0).abs() < 1e-9 || hits[0].coverage > 0.6,
+        "coverage {}",
+        hits[0].coverage
+    );
+}
