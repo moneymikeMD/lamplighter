@@ -2,11 +2,12 @@
 
 LAMP-21 found that IDF coverage is diluted on long questions: a LongMemEval question has many query terms, a relevant round matches only some of them, and so its coverage stays under a floor that short
 off-topic hook queries need in order to abstain. This page tests two ways of normalising coverage against the default floor, on the stored LongMemEval run and on the private gold set. Only the
-coverage that the floor tests changes; survivors are still ordered by cosine plus plain coverage, and the coverage reported on each hit is still plain.
+coverage that the floor tests changes; survivors are still ordered by cosine plus plain coverage, and the coverage reported on each hit is still plain. "Default" below means the LAMP-23 default
+the grid was measured against (plain 0.52 / 0.35); `capped:3` at 0.52 / 0.52 replaced it as the shipped default on 2026-11-08 ([Adoption](#adoption)).
 
 **Result:** one variant, `capped:3` at cosine 0.52 / coverage 0.52, does better than the default 0.52 / 0.35 on all four measures below: half the LongMemEval empties (3 of 470 against 6), higher
-LongMemEval recall@5 and MRR, and one more no-answer item abstaining on the gold set (33 of 57 rows against 30). The margins are small and in-sample (see [Limits](#limits)). **The default is unchanged**;
-adopting the variant is the owner's decision.
+LongMemEval recall@5 and MRR, and one more no-answer item abstaining on the gold set (33 of 57 rows against 30). The margins are small and in-sample (see [Limits](#limits)). **The owner adopted it
+as the shipped default on 2026-11-08.**
 
 ## Variants
 
@@ -14,7 +15,7 @@ adopting the variant is the owner's decision.
 
 | Variant | Floor coverage | Equal to plain when |
 | --- | --- | --- |
-| `plain` (default) | matched IDF weight / weight of all query terms | always |
+| `plain` (LAMP-23 default) | matched IDF weight / weight of all query terms | always |
 | `salient:<k>` | matched weight among the top `k` terms / weight of the top `k` terms | the query has `k` terms or fewer |
 | `capped:<k>` | all matched weight / weight of the top `k` terms, capped at 1 | the query has `k` terms or fewer |
 
@@ -24,10 +25,12 @@ terms long.
 The switch is bench-only, on `lampl serve`, next to `LAMPL_RECALL_FLOOR`:
 
 ```bash
-LAMPL_RECALL_COVERAGE=capped:3 LAMPL_RECALL_FLOOR=0.52,0.52 lampl serve ...   # salient:<k>, capped:<k> or plain
+LAMPL_RECALL_COVERAGE=salient:5 LAMPL_RECALL_FLOOR=0.52,0.31 lampl serve ...   # salient:<k>, capped:<k> or plain
+LAMPL_RECALL_COVERAGE=plain LAMPL_RECALL_FLOOR=0.52,0.35 lampl serve ...       # the LAMP-23 default, exactly
 ```
 
-Unset (or `plain`) keeps the shipped behaviour. An unparsable value is logged as a warning and ignored. The SQLite store has no switch.
+Unset keeps the shipped default, `capped:3` at 0.52 / 0.52 (`Floor::default()`). An unparsable value is logged as a warning and ignored. Local mode (SQLite) applies the same default floor and
+has no switch. While the grid below was measured the default was plain 0.52 / 0.35, and the variants were served with the switch set.
 
 ## Method
 
@@ -38,8 +41,8 @@ Unset (or `plain`) keeps the shipped behaviour. An unparsable value is logged as
 - One pass per workload against a server with the floor off (limit 100) records every fused candidate's cosine and coverage. Postgres then gives each question's lexemes, their document frequencies
   and which lexemes each candidate matches, from which every variant is computed offline. The recomputed plain coverage equals the server's to within 4e-16 on every hit of both workloads.
 - Grid: cosine 0.48 to 0.60 in steps of 0.02, coverage 0.30 to 0.70 in steps of 0.01, for `plain`, `salient` and `capped` at k = 3, 4, 5, 6 and 8.
-- Baseline check: the default 0.52 / 0.35 reproduces the LAMP-23 figures exactly, offline (checked before any variant was read) and on live servers of this branch with the switch unset (gate recall@5
-  0.9592, 30 of 57 negatives empty, 10 of 19 items, case variance 0; LongMemEval 0.949 / 0.921 / 6 empty, median 5 results).
+- Baseline check: the default 0.52 / 0.35 reproduces the LAMP-23 figures exactly, offline (checked before any variant was read) and on live servers of the grid build with the switch unset (gate
+  recall@5 0.9592, 30 of 57 negatives empty, 10 of 19 items, case variance 0; LongMemEval 0.949 / 0.921 / 6 empty, median 5 results).
 - The chosen point was then served live with the switch set and matched the offline figures to every digit: LongMemEval 0.955 / 0.926 / 3 empty (median 8 results) through
   `lampl-bench run --reuse-run`, gate 0.9613 / 33 of 57 (11 of 19 items, case variance 0) through homelab's gate harness with its adapter floor opened so the server's floor decides. These two
   passes and the LongMemEval default pass used a CPU build, the gate baseline a Metal build; both embed with the same model digest.
@@ -52,7 +55,7 @@ Best point per variant that keeps the gate (gold negatives empty at least 30, as
 
 | Variant | cosine / coverage | Gold | LongMemEval |
 | --- | --- | --- | --- |
-| **plain, default** | **0.52 / 0.35** | **0.9592 / 30** | **0.949 / 0.921 / 6** |
+| **plain, LAMP-23 default** | **0.52 / 0.35** | **0.9592 / 30** | **0.949 / 0.921 / 6** |
 | plain | 0.56 / 0.34 | 0.9571 / 30 | 0.947 / 0.919 / 3 |
 | salient:3 | 0.52 / 0.32 | 0.9508 / 30 | 0.934 / 0.906 / 10 |
 | salient:4 | 0.52 / 0.31 | 0.9592 / 30 | 0.947 / 0.919 / 6 |
@@ -103,9 +106,16 @@ Reading the tables:
 
 ## Recommendation
 
-If a change is wanted, `LAMPL_RECALL_COVERAGE=capped:3` with the floor at 0.52 / 0.52, which against the default gives: LongMemEval empties 6 to 3 of 470, recall@5 0.949 to 0.955, MRR 0.921 to
-0.926; gold negatives empty 30 to 33 of 57 (10 to 11 of 19 items), gate recall@5 0.9592 to 0.9613. Making it the default would add a `CoverageNorm` to `Floor::default()` and a re-run of the
-homelab gate on the build. Not adopting it costs little: the default already returns something on 464 of 470 LongMemEval questions.
+`capped:3` with the floor at 0.52 / 0.52, which against the LAMP-23 default gives: LongMemEval empties 6 to 3 of 470, recall@5 0.949 to 0.955, MRR 0.921 to 0.926; gold negatives empty 30 to 33
+of 57 (10 to 11 of 19 items), gate recall@5 0.9592 to 0.9613.
+
+## Adoption
+
+The owner accepted the recommendation on 2026-11-08 (LAMP-22). `Floor` now carries its `coverage_norm`, and `Floor::default()` is cosine 0.52, coverage 0.52, `capped:3`, so both stores and
+both modes use it without opting in. Confirmed on a CPU build of that change with no `LAMPL_RECALL_*` variable set, against the stored LongMemEval run: 0.955 / 0.926 / 3 empty
+(median 8 results), identical to the switched pass above; the same build with `LAMPL_RECALL_COVERAGE=plain LAMPL_RECALL_FLOOR=0.52,0.35` gave 0.949 / 0.921 / 6, the LAMP-23 figures.
+On the gate (snapshot of memory-pg 2026-11-08T16:16:21Z, 2,669 memories, embedded on that build, homelab's harness with its adapter floor opened so the server's floor decides): the
+default build gives recall@5 0.9613 and 33 of 57 negatives empty (11 of 19 items; recurrence 0.9686, update 0.9176), and the override gives 0.9592 and 30 of 57 (10 of 19), both identical to the grid.
 
 ## Limits
 

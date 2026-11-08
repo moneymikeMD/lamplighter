@@ -71,14 +71,30 @@ Run on 2026-11-07, scored at the memory level (one memory per round, mapped back
 | Haystack | all sessions per question, 116,728 memories in total, one project per question |
 | Embedder | Qwen3-Embedding-0.6B, in-process, candle on Metal (Apple M2, 16 GB), input truncated at 512 tokens |
 | Recall | hybrid (full-text plus cosine, reciprocal-rank fusion), request limit 100 |
-| Default floor (LAMP-23) | keep a candidate when cosine >= 0.52 or IDF coverage >= 0.35. **In-sample: tuned on this same run and on the private gold set** |
-| Earlier default floors | cosine >= 0.70 with coverage >= 0.24 (until LAMP-21), then coverage >= 0.18 (LAMP-21 to LAMP-23) |
+| Default floor (LAMP-22) | keep a candidate when cosine >= 0.52 or `capped:3` IDF coverage >= 0.52 (matched weight over the weight of the query's three rarest terms, capped at 1). **In-sample: tuned on this same run and on the private gold set** |
+| Earlier default floors | cosine >= 0.70 with coverage >= 0.24 (until LAMP-21), then coverage >= 0.18 (LAMP-21 to LAMP-23), then cosine >= 0.52 or plain coverage >= 0.35 (LAMP-23 to LAMP-22) |
 | Query handling (LAMP-23) | query lower-cased, Qwen3 task instruction prefixed to the query embedding, stop words dropped from the coverage terms, survivors ordered by cosine plus coverage; stored memories unchanged |
 | Floor off | `LAMPL_RECALL_FLOOR=off` on the server (cosine and coverage thresholds removed); the vectors are the same, queries were re-run against the stored memories, nothing was re-embedded |
 
-The first full run (before LAMP-23) used the then-default floor; re-running its queries with that floor reproduced it to every printed digit. For LAMP-23 the queries were run again at the final build against the same stored memories (nothing re-embedded): once on a server with no override (the default floor) and once with the floor off. The earlier runs are kept below as history.
+The first full run (before LAMP-23) used the then-default floor; re-running its queries with that floor reproduced it to every printed digit. For LAMP-23 the queries were run again at the final build
+against the same stored memories (nothing re-embedded): once on a server with no override (the default floor) and once with the floor off. For LAMP-22 they were run again on a CPU build of the new
+default (same model digest), once with no override and once with `LAMPL_RECALL_COVERAGE=plain LAMPL_RECALL_FLOOR=0.52,0.35`, which reproduced the LAMP-23 table below to every digit. The earlier runs
+are kept below as history.
 
-Default floor (cosine 0.52 or coverage 0.35; in-sample):
+Default floor (cosine 0.52 or `capped:3` coverage 0.52; LAMP-22; in-sample):
+
+```
+                             n  any@1    any@3    any@5    any@10   all@1    all@3    all@5    all@10      MRR
+overall                    470   0.904   0.947   0.955   0.955   0.315   0.783   0.821   0.838   0.926
+knowledge-update            72   0.986   1.000   1.000   1.000   0.000   0.944   0.944   0.944   0.993
+multi-session              121   0.934   0.959   0.975   0.975   0.000   0.562   0.661   0.694   0.950
+single-session-assistant    56   1.000   1.000   1.000   1.000   1.000   1.000   1.000   1.000   1.000
+single-session-preference   30   0.600   0.800   0.833   0.833   0.600   0.800   0.833   0.833   0.701
+single-session-user         64   0.953   0.984   0.984   0.984   0.953   0.984   0.984   0.984   0.969
+temporal-reasoning         127   0.835   0.898   0.906   0.906   0.102   0.701   0.740   0.772   0.864
+```
+
+LAMP-23 default floor (cosine 0.52 or plain coverage 0.35; history; in-sample):
 
 ```
                              n  any@1    any@3    any@5    any@10   all@1    all@3    all@5    all@10      MRR
@@ -104,7 +120,8 @@ single-session-user         64   0.953   1.000   1.000   1.000   0.953   1.000  
 temporal-reasoning         127   0.866   0.969   0.976   0.984   0.110   0.756   0.843   0.929   0.917
 ```
 
-recall@5 is 0.949 with the default floor and 0.987 with the floor off; MRR is 0.921 and 0.949. The default returns nothing on 6 of 470 questions (1%).
+recall@5 is 0.955 with the default floor, 0.949 with the LAMP-23 floor and 0.987 with the floor off; MRR is 0.926, 0.921 and 0.949. The default returns nothing on 3 of 470 questions, the LAMP-23
+floor on 6.
 
 #### Why the rows differ: the floor truncates
 
@@ -112,7 +129,8 @@ Results returned per question (rounds, then distinct sessions), final build:
 
 | | Floor | Median rounds | Mean rounds | Questions with 0 rounds | Questions with 3 or fewer rounds | Median sessions |
 | --- | --- | --- | --- | --- | --- | --- |
-| All 470 | default (0.52 / 0.35) | 5 | 6.6 | 6 | 145 | 2 |
+| All 470 | default (0.52 / 0.52 `capped:3`) | 8 | 10.1 | 3 | 74 | 4 |
+| All 470 | LAMP-23 (0.52 / 0.35 plain) | 5 | 6.6 | 6 | 145 | 2 |
 | All 470 | off | 82 | 80.5 | 0 | 0 | 32 |
 
 #### History: runs before LAMP-23
@@ -183,7 +201,8 @@ DB=postgres://postgres:bench@127.0.0.1:<mapped port>/postgres
 
 ./target/release/lampl serve --database-url $DB --listen 127.0.0.1:7881 &                              # default floor
 LAMPL_RECALL_FLOOR=off ./target/release/lampl serve --database-url $DB --listen 127.0.0.1:7882 &       # floor off
-LAMPL_RECALL_FLOOR=0.60,0.20 ./target/release/lampl serve --database-url $DB --listen 127.0.0.1:7883 &   # any <cosine>,<coverage>
+LAMPL_RECALL_FLOOR=0.60,0.20 ./target/release/lampl serve --database-url $DB --listen 127.0.0.1:7883 &   # any <cosine>,<coverage>, coverage still capped:3
+LAMPL_RECALL_COVERAGE=plain LAMPL_RECALL_FLOOR=0.52,0.35 ./target/release/lampl serve --database-url $DB --listen 127.0.0.1:7884 &   # the LAMP-23 default, exactly
 
 ./target/release/lampl-bench run --subset full --reuse-run <run id> --server http://127.0.0.1:7882 --checkpoint sweep-off.jsonl
 ```

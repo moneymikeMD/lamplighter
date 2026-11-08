@@ -43,8 +43,6 @@ pub struct RecallQuery {
     pub project: Option<String>,
     pub limit: usize,
     pub floor: Floor,
-    /// Benchmarking only: how the floor's coverage is computed. Ordering and the reported coverage always use plain coverage.
-    pub coverage_norm: CoverageNorm,
 }
 
 impl RecallQuery {
@@ -56,7 +54,6 @@ impl RecallQuery {
             project: None,
             limit: 10,
             floor: Floor::default(),
-            coverage_norm: CoverageNorm::Plain,
         }
     }
 }
@@ -331,7 +328,7 @@ impl PgStore {
         let ids: Vec<Uuid> = fused.iter().map(|(id, _)| *id).collect();
 
         let coverage = self
-            .coverage(&terms, &ids, q.project.as_deref(), q.coverage_norm)
+            .coverage(&terms, &ids, q.project.as_deref(), q.floor.coverage_norm)
             .await?;
 
         let sql = format!("SELECT {MEMORY_COLUMNS} FROM memories WHERE id = ANY($1)");

@@ -12,15 +12,21 @@ for. Stored memories are embedded as written, without an instruction, so changin
 
 ## Relevance floor
 
-A fused candidate is kept when `cosine >= Floor.cosine` **or** `coverage >= Floor.coverage`.
+A fused candidate is kept when `cosine >= Floor.cosine` **or** its floor coverage `>= Floor.coverage`, where the floor coverage is computed under `Floor.coverage_norm`.
 
 - `cosine` is `1 - (embedding <=> query)`; absent when the query carries no embedding.
 - `coverage` is the share of the query's total IDF weight carried by the query terms the memory matches. `idf(N, df) = ln((N - df + 0.5) / (df + 0.5) + 1)`, with `N` and `df` counted over the active store
-  (scoped to the project when one is given).
+  (scoped to the project when one is given). This plain coverage orders the survivors and is the coverage reported on each hit.
+- The floor coverage under the default `capped:3` is all the matched IDF weight over the weight of the query's three highest-IDF terms, capped at 1. It equals plain coverage for a query of three
+  terms or fewer and is never below it ([LAMP-22](#normalised-coverage-lamp-22)).
 
 ## Calibration
 
-The default floor is `cosine 0.52`, `coverage 0.35` (LAMP-23), chosen against the private gold set and the public LongMemEval run together; see [Re-calibration after the coverage fix](#re-calibration-after-the-coverage-fix-lamp-23). **Both figures are in-sample: the floor was tuned on the same gold set and the same LongMemEval run that report it.** Earlier calibrations (LAMP-19, then LAMP-21) are kept below as history. They were measured before the LAMP-23 fix to how query terms are built, so their coverage figures are not comparable to the current ones and their defaults (0.70 / 0.24, then 0.70 / 0.18) are no longer in use. The earlier `0.5 / 0.5` was an untested placeholder, and the production memorygraph numbers (0.58 / 0.5) were tuned on different vectors and a different coverage definition, so they are not copied.
+The default floor is `cosine 0.52`, `coverage 0.52` with `capped:3` coverage (LAMP-22), chosen against the private gold set and the public LongMemEval run together; see [Calibration (LAMP-22,
+owner-approved 2026-11-08)](#calibration-lamp-22-owner-approved-2026-11-08). **Both figures are in-sample: the floor was tuned on the same gold set and the same LongMemEval run that report it.** The
+LAMP-23 default it replaced, `cosine 0.52`, plain `coverage 0.35`, is kept below as history, as are the earlier calibrations (LAMP-19, then LAMP-21). Those two were measured before the LAMP-23 fix to
+how query terms are built, so their coverage figures are not comparable to the current ones and their defaults (0.70 / 0.24, then 0.70 / 0.18) are no longer in use. The earlier `0.5 / 0.5` was an
+untested placeholder, and the production memorygraph numbers (0.58 / 0.5) were tuned on different vectors and a different coverage definition, so they are not copied.
 
 ### Data
 
@@ -90,9 +96,13 @@ Method. The floor is applied to the ranked candidate list after fusion, so one p
 
 Trade-off. The LAMP-21 default gave up 4 of the 9 abstentions LAMP-19 reached (9 of 19 down to 5 of 19) to cut the LongMemEval empty rate from 37% to 14% and lift its recall@5 from 0.591 to 0.811. Coverage 0.20 keeps 6 of 19 but leaves 96 empty (20%); no coverage below 0.20 abstains more than 3 of 19. The gold set has 19 no-answer queries, so one query moves abstain-correct by about 5 points. A length-normalised coverage might separate the two workloads better; LAMP-22 tested it later ([below](#normalised-coverage-lamp-22)).
 
-`LAMPL_RECALL_FLOOR` (`off` or `<cosine>,<coverage>`) on `lampl serve` overrides the default for benchmarking; unset keeps the default above. `LAMPL_RECALL_COVERAGE` (`salient:<k>`, `capped:<k>` or `plain`) changes how the floor's coverage is computed, also for benchmarking only ([LAMP-22](#normalised-coverage-lamp-22)).
+`LAMPL_RECALL_FLOOR` (`off` or `<cosine>,<coverage>`) on `lampl serve` overrides the default thresholds for benchmarking and keeps the coverage norm; unset keeps the default above.
+`LAMPL_RECALL_COVERAGE` (`plain`, `salient:<k>` or `capped:<k>`) changes how the floor's coverage is computed, also for benchmarking only ([LAMP-22](#normalised-coverage-lamp-22)).
+`LAMPL_RECALL_COVERAGE=plain LAMPL_RECALL_FLOOR=0.52,0.35` reproduces the LAMP-23 default exactly. Local mode has no override.
 
 ### Re-calibration after the coverage fix (LAMP-23)
+
+History: this was the default from LAMP-23 until LAMP-22's `capped:3` floor replaced it on 2026-11-08.
 
 Two defects distorted the floor until LAMP-23. Query terms kept stop words, which can never match a memory yet carried the highest IDF weight in the coverage denominator, so coverage ran well below memorygraph's; and the gate set (below) showed recall that varied with query case. With stop words dropped (the term list now matches Postgres's `to_tsvector('english', ..)`), case folded, a Qwen3 query instruction and survivors ordered by cosine plus coverage, coverage values run higher and the old 0.70 / 0.18 floor became nearly inert (gate recall@5 0.9655 but only 9 of 57 negatives empty).
 
@@ -112,7 +122,7 @@ Cosine 0.52, varying coverage:
 | 0.30 | 0.9613 / 21 | 0.964 / 0.933 / 2 |
 | 0.32 | 0.9613 / 21 | 0.962 / 0.933 / 3 |
 | 0.34 | 0.9613 / 27 | 0.955 / 0.927 / 3 |
-| **0.35 (default)** | **0.9592 / 30** | **0.949 / 0.921 / 6** |
+| **0.35 (LAMP-23 default)** | **0.9592 / 30** | **0.949 / 0.921 / 6** |
 | 0.36 | 0.9592 / 30 | 0.938 / 0.915 / 7 |
 | 0.40 | 0.9592 / 30 | 0.919 / 0.898 / 16 |
 | 0.45 | 0.9592 / 36 | 0.889 / 0.871 / 30 |
@@ -124,20 +134,34 @@ Coverage 0.35, varying cosine:
 | cosine | gate | LongMemEval |
 |---|---|---|
 | 0.50 | 0.9655 / 24 | 0.953 / 0.926 / 6 |
-| **0.52 (default)** | **0.9592 / 30** | **0.949 / 0.921 / 6** |
+| **0.52 (LAMP-23 default)** | **0.9592 / 30** | **0.949 / 0.921 / 6** |
 | 0.56 | 0.9529 / 33 | 0.940 / 0.914 / 6 |
 | 0.60 | 0.9445 / 36 | 0.934 / 0.909 / 8 |
 | 0.70 | 0.9249 / 36 | 0.934 / 0.907 / 8 |
 
 Other reference points on the same build: the previous default 0.70 / 0.18 gives 0.9655 / 9 on the gate and 0.981 / 0.943 / 0 on LongMemEval; memorygraph's own floor (cosine 0.58 or coverage 0.50) gives 0.9333 / 48 and 0.802 / 0.790 / 68.
 
-Choice. The gate passes at 0.52 / 0.34 (27 of 57 negatives, exactly the threshold) and 0.52 / 0.35 (30 of 57). The default is 0.52 / 0.35 for one item of margin on the 19 no-answer items; the 0.34 to 0.35 plateau is flat across cosine 0.52 to 0.58, so it is not a knife edge. Against memorygraph on the gate (recall@5 0.9592 vs 0.9487, negatives empty 30 of 57 vs 27 of 57); on LongMemEval it returns nothing on 6 of 470 questions (1%) with recall@5 0.949, MRR 0.921 and a median of 5 results, against 0.987 / 0.949 with the floor off.
+Choice. The gate passes at 0.52 / 0.34 (27 of 57 negatives, exactly the threshold) and 0.52 / 0.35 (30 of 57). The LAMP-23 default was 0.52 / 0.35 for one item of margin on the 19 no-answer items; the
+0.34 to 0.35 plateau is flat across cosine 0.52 to 0.58, so it is not a knife edge. Against memorygraph on the gate (recall@5 0.9592 vs 0.9487, negatives empty 30 of 57 vs 27 of 57); on LongMemEval it
+returns nothing on 6 of 470 questions (1%) with recall@5 0.949, MRR 0.921 and a median of 5 results, against 0.987 / 0.949 with the floor off.
 
 Limits of this tuning. Floor and measurement share the same 138 items and the same 470 questions, so these are in-sample figures and will not hold exactly on new data. With 19 no-answer items one item moves negatives empty by 3 rows of 57. `single-session-preference` remains the weakest LongMemEval type (recall@5 0.767).
 
 ### Normalised coverage (LAMP-22)
 
-LAMP-22 tested whether normalising coverage for query length separates the two workloads better than plain coverage, against the LAMP-23 default; method and grid in [bench/coverage-normalisation.md](bench/coverage-normalisation.md). Two variants were tried behind the bench-only `LAMPL_RECALL_COVERAGE` switch, which changes only the coverage the floor tests: `salient:<k>` (coverage over the `k` highest-IDF query terms) and `capped:<k>` (all matched weight over the weight of the top `k` terms, capped at 1). `salient` never beat the default on both workloads. `capped:3` at 0.52 / 0.52 did on every measure: LongMemEval 0.955 / 0.926 / 3 empty against 0.949 / 0.921 / 6, gate 0.9613 / 33 of 57 against 0.9592 / 30. The margins are three LongMemEval questions and one no-answer item, in-sample, so the default stays 0.52 / 0.35 with plain coverage unless the owner adopts the variant.
+LAMP-22 tested whether normalising coverage for query length separates the two workloads better than plain coverage, against the LAMP-23 default; method and grid in
+[bench/coverage-normalisation.md](bench/coverage-normalisation.md). Two variants were tried behind the bench-only `LAMPL_RECALL_COVERAGE` switch, which changes only the coverage the floor tests:
+`salient:<k>` (coverage over the `k` highest-IDF query terms) and `capped:<k>` (all matched weight over the weight of the top `k` terms, capped at 1). `salient` never beat the default on both
+workloads. `capped:3` at 0.52 / 0.52 did on every measure: LongMemEval 0.955 / 0.926 / 3 empty against 0.949 / 0.921 / 6, gate 0.9613 / 33 of 57 against 0.9592 / 30. The margins are three LongMemEval
+questions and one no-answer item, in-sample; the owner adopted the variant as the default (below).
+
+### Calibration (LAMP-22, owner-approved 2026-11-08)
+
+The default floor is cosine 0.52 or `capped:3` coverage 0.52, in both stores (`Floor::default()`; server and local mode alike). The owner approved it on 2026-11-08 on the LAMP-22 grid. Against the
+LAMP-23 default (plain 0.52 / 0.35): LongMemEval recall@5 0.949 to 0.955, MRR 0.921 to 0.926, questions returning nothing 6 to 3 of 470; gate recall@5 0.9592 to 0.9613, negatives empty 30 to 33
+of 57 (10 to 11 of 19 no-answer items). **In-sample, with small margins:** the point is the best of 3,157 grid points on the same LongMemEval run and gold set that report it, and the gain is 3
+LongMemEval questions and 1 no-answer gold item. It sits on a plateau (coverage 0.52 to 0.54, cosine 0.52 to 0.58) with an abstention cliff just below it at coverage 0.49 to 0.50. Ordering and
+the coverage reported on hits are unchanged. `LAMPL_RECALL_COVERAGE=plain LAMPL_RECALL_FLOOR=0.52,0.35` on `lampl serve` restores the LAMP-23 floor for comparison.
 
 ### Limits
 

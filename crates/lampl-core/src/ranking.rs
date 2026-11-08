@@ -233,10 +233,10 @@ pub fn fts_coverage(term_idf: &[(String, f64)], matched: &HashSet<String>) -> f6
     hit / total
 }
 
-/// How the floor's coverage is computed. `Plain` is the shipped default; the others exist for benchmarking only (LAMP-22, docs/bench/coverage-normalisation.md).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// How the floor's coverage is computed. The default floor uses `Capped(3)` (LAMP-22); `Plain` and `Salient` remain for benchmarking (docs/bench/coverage-normalisation.md).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CoverageNorm {
-    #[default]
+    /// The share of the query's total IDF weight that the document matched; ordering and the coverage reported on hits always use this.
     Plain,
     /// Coverage over the query's `k` highest-IDF terms only.
     Salient(usize),
@@ -300,19 +300,21 @@ pub fn floor_coverage(
     }
 }
 
-/// A candidate survives when its cosine similarity or its IDF full-text coverage clears the threshold.
+/// A candidate survives when its cosine similarity or its IDF full-text coverage, computed under `coverage_norm`, clears the threshold.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Floor {
     pub cosine: f64,
     pub coverage: f64,
+    pub coverage_norm: CoverageNorm,
 }
 
 impl Default for Floor {
-    /// Calibrated on Qwen3-Embedding-0.6B vectors; method and numbers in docs/ranking.md.
+    /// Cosine 0.52 or `Capped(3)` coverage 0.52, calibrated on Qwen3-Embedding-0.6B vectors (LAMP-22); method and numbers in docs/ranking.md.
     fn default() -> Self {
         Floor {
             cosine: 0.52,
-            coverage: 0.35,
+            coverage: 0.52,
+            coverage_norm: CoverageNorm::Capped(3),
         }
     }
 }
@@ -410,10 +412,20 @@ mod tests {
     }
 
     #[test]
+    fn default_floor_is_capped_three_at_0_52() {
+        let f = Floor::default();
+        assert_eq!(
+            (f.cosine, f.coverage, f.coverage_norm),
+            (0.52, 0.52, CoverageNorm::Capped(3))
+        );
+    }
+
+    #[test]
     fn floor_is_cosine_or_coverage() {
         let f = Floor {
             cosine: 0.6,
             coverage: 0.5,
+            coverage_norm: CoverageNorm::Plain,
         };
         assert!(passes_floor(f, Some(0.7), 0.0));
         assert!(passes_floor(f, None, 0.5));
