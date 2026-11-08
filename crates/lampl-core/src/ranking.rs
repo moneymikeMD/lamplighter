@@ -233,6 +233,73 @@ pub fn fts_coverage(term_idf: &[(String, f64)], matched: &HashSet<String>) -> f6
     hit / total
 }
 
+/// How the floor's coverage is computed. `Plain` is the shipped default; the others exist for benchmarking only (LAMP-22, docs/bench/coverage-normalisation.md).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CoverageNorm {
+    #[default]
+    Plain,
+    /// Coverage over the query's `k` highest-IDF terms only.
+    Salient(usize),
+    /// All matched IDF weight over the weight of the query's `k` highest-IDF terms, capped at 1.
+    Capped(usize),
+}
+
+impl std::str::FromStr for CoverageNorm {
+    type Err = String;
+
+    /// Parses `plain`, `salient:<k>` or `capped:<k>` with `k >= 1`.
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s.trim();
+        if s.eq_ignore_ascii_case("plain") {
+            return Ok(CoverageNorm::Plain);
+        }
+        let (kind, k) = s
+            .split_once(':')
+            .ok_or_else(|| format!("expected plain, salient:<k> or capped:<k>, got `{s}`"))?;
+        let k: usize = k
+            .trim()
+            .parse()
+            .ok()
+            .filter(|k| *k >= 1)
+            .ok_or_else(|| format!("`{s}`: k must be a positive integer"))?;
+        match kind.trim().to_ascii_lowercase().as_str() {
+            "salient" => Ok(CoverageNorm::Salient(k)),
+            "capped" => Ok(CoverageNorm::Capped(k)),
+            _ => Err(format!("unknown coverage variant `{s}`")),
+        }
+    }
+}
+
+/// The coverage the relevance floor tests under `norm`; `Plain` equals `fts_coverage`. Term weight ties are broken by term so the top `k` is deterministic.
+pub fn floor_coverage(
+    term_idf: &[(String, f64)],
+    matched: &HashSet<String>,
+    norm: CoverageNorm,
+) -> f64 {
+    let k = match norm {
+        CoverageNorm::Plain => return fts_coverage(term_idf, matched),
+        CoverageNorm::Salient(k) | CoverageNorm::Capped(k) => k,
+    };
+    let mut ranked: Vec<&(String, f64)> = term_idf.iter().collect();
+    ranked.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    let top: Vec<(String, f64)> = ranked.into_iter().take(k).cloned().collect();
+    match norm {
+        CoverageNorm::Salient(_) => fts_coverage(&top, matched),
+        _ => {
+            let denom: f64 = top.iter().map(|(_, w)| w).sum();
+            if denom <= 0.0 {
+                return 0.0;
+            }
+            let hit: f64 = term_idf
+                .iter()
+                .filter(|(t, _)| matched.contains(t))
+                .map(|(_, w)| w)
+                .sum();
+            (hit / denom).min(1.0)
+        }
+    }
+}
+
 /// A candidate survives when its cosine similarity or its IDF full-text coverage clears the threshold.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Floor {
@@ -306,6 +373,40 @@ mod tests {
         let only_rare: HashSet<String> = ["rare".to_owned()].into();
         assert!((fts_coverage(&w, &only_rare) - 0.8).abs() < 1e-12);
         assert_eq!(fts_coverage(&[], &only_rare), 0.0);
+    }
+
+    #[test]
+    fn coverage_variants_use_the_top_k_terms() {
+        let w = vec![
+            ("rare".to_owned(), 4.0),
+            ("mid".to_owned(), 2.0),
+            ("common".to_owned(), 1.0),
+            ("tied".to_owned(), 1.0),
+        ];
+        let rare_common: HashSet<String> = ["rare", "common"].map(String::from).into();
+        let plain = floor_coverage(&w, &rare_common, CoverageNorm::Plain);
+        assert!((plain - fts_coverage(&w, &rare_common)).abs() < 1e-12);
+        assert!(
+            (floor_coverage(&w, &rare_common, CoverageNorm::Salient(2)) - 4.0 / 6.0).abs() < 1e-12
+        );
+        assert!(
+            (floor_coverage(&w, &rare_common, CoverageNorm::Capped(2)) - 5.0 / 6.0).abs() < 1e-12
+        );
+        assert!((floor_coverage(&w, &rare_common, CoverageNorm::Capped(1)) - 1.0).abs() < 1e-12);
+        let common: HashSet<String> = ["common"].map(String::from).into();
+        assert!((floor_coverage(&w, &common, CoverageNorm::Salient(3)) - 1.0 / 7.0).abs() < 1e-12);
+        assert!((floor_coverage(&w, &rare_common, CoverageNorm::Salient(9)) - plain).abs() < 1e-12);
+        assert_eq!(floor_coverage(&[], &common, CoverageNorm::Capped(2)), 0.0);
+    }
+
+    #[test]
+    fn coverage_variants_parse() {
+        assert_eq!("plain".parse(), Ok(CoverageNorm::Plain));
+        assert_eq!(" Salient:4 ".parse(), Ok(CoverageNorm::Salient(4)));
+        assert_eq!("capped:6".parse(), Ok(CoverageNorm::Capped(6)));
+        for bad in ["", "salient", "salient:0", "capped:x", "len:3"] {
+            assert!(bad.parse::<CoverageNorm>().is_err(), "{bad}");
+        }
     }
 
     #[test]

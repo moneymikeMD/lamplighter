@@ -6,8 +6,8 @@ use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
 use lampl_core::{
-    EMBEDDING_DIM, Floor, Link, LinkType, Memory, NewMemory, RRF_K, fts_coverage, idf,
-    passes_floor, relevance, rrf_fuse,
+    CoverageNorm, EMBEDDING_DIM, Floor, Link, LinkType, Memory, NewMemory, RRF_K, floor_coverage,
+    idf, passes_floor, relevance, rrf_fuse,
 };
 use pgvector::HalfVector;
 use sqlx::postgres::{PgPool, PgPoolOptions, PgRow};
@@ -43,6 +43,8 @@ pub struct RecallQuery {
     pub project: Option<String>,
     pub limit: usize,
     pub floor: Floor,
+    /// Benchmarking only: how the floor's coverage is computed. Ordering and the reported coverage always use plain coverage.
+    pub coverage_norm: CoverageNorm,
 }
 
 impl RecallQuery {
@@ -54,6 +56,7 @@ impl RecallQuery {
             project: None,
             limit: 10,
             floor: Floor::default(),
+            coverage_norm: CoverageNorm::Plain,
         }
     }
 }
@@ -327,7 +330,9 @@ impl PgStore {
         }
         let ids: Vec<Uuid> = fused.iter().map(|(id, _)| *id).collect();
 
-        let coverage = self.coverage(&terms, &ids, q.project.as_deref()).await?;
+        let coverage = self
+            .coverage(&terms, &ids, q.project.as_deref(), q.coverage_norm)
+            .await?;
 
         let sql = format!("SELECT {MEMORY_COLUMNS} FROM memories WHERE id = ANY($1)");
         let rows = sqlx::query(AssertSqlSafe(sql))
@@ -343,8 +348,8 @@ impl PgStore {
         let mut ranked: Vec<(Uuid, f64, Option<f64>, f64)> = Vec::new();
         for (id, score) in fused {
             let cosine = cosines.get(&id).copied();
-            let cov = coverage.get(&id).copied().unwrap_or(0.0);
-            if passes_floor(q.floor, cosine, cov) {
+            let (cov, floor_cov) = coverage.get(&id).copied().unwrap_or((0.0, 0.0));
+            if passes_floor(q.floor, cosine, floor_cov) {
                 ranked.push((id, score, cosine, cov));
             }
         }
@@ -372,7 +377,8 @@ impl PgStore {
         terms: &[String],
         ids: &[Uuid],
         project: Option<&str>,
-    ) -> Result<HashMap<Uuid, f64>, StoreError> {
+        norm: CoverageNorm,
+    ) -> Result<HashMap<Uuid, (f64, f64)>, StoreError> {
         if terms.is_empty() {
             return Ok(HashMap::new());
         }
@@ -416,7 +422,13 @@ impl PgStore {
             let id: Uuid = row.try_get("id")?;
             let matched: Vec<String> = row.try_get("matched")?;
             let set: HashSet<String> = matched.into_iter().collect();
-            out.insert(id, fts_coverage(&term_idf, &set));
+            let plain = floor_coverage(&term_idf, &set, CoverageNorm::Plain);
+            let floor = if norm == CoverageNorm::Plain {
+                plain
+            } else {
+                floor_coverage(&term_idf, &set, norm)
+            };
+            out.insert(id, (plain, floor));
         }
         Ok(out)
     }
