@@ -27,7 +27,7 @@ The switch is bench-only, on `lampl serve`, next to `LAMPL_RECALL_FLOOR`:
 LAMPL_RECALL_COVERAGE=capped:3 LAMPL_RECALL_FLOOR=0.52,0.52 lampl serve ...   # salient:<k>, capped:<k> or plain
 ```
 
-Unset (or `plain`) keeps the shipped behaviour. An unparseable value is logged as a warning and ignored. The SQLite store has no switch.
+Unset (or `plain`) keeps the shipped behaviour. An unparsable value is logged as a warning and ignored. The SQLite store has no switch.
 
 ## Method
 
