@@ -15,10 +15,10 @@ workspace = true
 metal = ["lampl-embed/metal"]
 
 [dependencies]
-lampl-core = { path = "../lampl-core", version = "0.1.0" }
-lampl-embed = { path = "../lampl-embed", version = "0.1.0" }
-lampl-store-pg = { path = "../lampl-store-pg", version = "0.1.0" }
-lampl-store-sqlite = { path = "../lampl-store-sqlite", version = "0.1.0" }
+lampl-core = { path = "../lampl-core", version = "0.2.0" }
+lampl-embed = { path = "../lampl-embed", version = "0.2.0" }
+lampl-store-pg = { path = "../lampl-store-pg", version = "0.2.0" }
+lampl-store-sqlite = { path = "../lampl-store-sqlite", version = "0.2.0" }
 axum.workspace = true
 chrono.workspace = true
 clap.workspace = true
