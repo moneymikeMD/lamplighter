@@ -1945,7 +1945,7 @@ dependencies = [
 
 [[package]]
 name = "lampl"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "axum",
  "chrono",
@@ -1989,7 +1989,7 @@ dependencies = [
 
 [[package]]
 name = "lampl-core"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "rust-stemmers",
@@ -2000,7 +2000,7 @@ dependencies = [
 
 [[package]]
 name = "lampl-embed"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "candle-core",
  "candle-nn",
@@ -2015,7 +2015,7 @@ dependencies = [
 
 [[package]]
 name = "lampl-store-pg"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "lampl-core",
@@ -2028,7 +2028,7 @@ dependencies = [
 
 [[package]]
 name = "lampl-store-sqlite"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "lampl-core",
@@ -2041,7 +2041,7 @@ dependencies = [
 
 [[package]]
 name = "lamplighter"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "lampl",
 ]

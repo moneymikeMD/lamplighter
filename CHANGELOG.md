@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.3.0](https://github.com/moneymikeMD/lamplighter/compare/v0.2.1...v0.3.0) (2026-11-08)
+
+
+### Features
+
+* **core:** default relevance floor uses capped:3 coverage at 0.52/0.52 (LAMP-22) ([#36](https://github.com/moneymikeMD/lamplighter/issues/36)) ([434ca4c](https://github.com/moneymikeMD/lamplighter/commit/434ca4c8184d0af4cf63da513f545b3c449b6609))
+* **serve:** bench-only normalised floor coverage, LAMP-22 grid ([#35](https://github.com/moneymikeMD/lamplighter/issues/35)) ([ecbf774](https://github.com/moneymikeMD/lamplighter/commit/ecbf774ee68a1b5de322b89f28dab3a67b110aec))
+
+
+### Bug Fixes
+
+* **plugin:** breaker notice stays in the session that failed; new sessions probe to close it ([#33](https://github.com/moneymikeMD/lamplighter/issues/33)) ([fa74db9](https://github.com/moneymikeMD/lamplighter/commit/fa74db9dc9623e261d5a52b3fb21c424c6e70366))
+
 ## [0.2.1](https://github.com/moneymikeMD/lamplighter/compare/v0.2.0...v0.2.1) (2026-11-08)
 
 
