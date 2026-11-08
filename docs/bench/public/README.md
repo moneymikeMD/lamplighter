@@ -140,3 +140,22 @@ LAMPL_RECALL_FLOOR=off ./target/release/lampl serve --database-url postgres://po
 ```
 
 Build both binaries with `--features lampl/metal` on Apple Silicon. The run id is the middle part of the `lme-<run id>-<question id>` project names. `LAMPL_RECALL_FLOOR` takes `off` or `<cosine>,<coverage>`; unset keeps the shipped default. It exists for benchmarking only.
+
+#### Restarting the stored run for a floor sweep
+
+The full run's store is kept so other floor values can be tried without re-embedding the documents (a 470-question pass takes about three minutes). It lives in a stopped pgvector container whose data volume must not be removed.
+
+```bash
+docker start lampl-bench-pg-full                      # the same port mapping and data volume come back
+export LAMPL_KEYS_FILE=<keys file from the first run>   # keep it; a key is printed only once, by `serve keys add`
+export LAMPL_API_KEY=<that key>
+DB=postgres://postgres:bench@127.0.0.1:<mapped port>/postgres
+
+./target/release/lampl serve --database-url $DB --listen 127.0.0.1:7881 &                              # shipped floor
+LAMPL_RECALL_FLOOR=off ./target/release/lampl serve --database-url $DB --listen 127.0.0.1:7882 &       # floor off
+LAMPL_RECALL_FLOOR=0.60,0.20 ./target/release/lampl serve --database-url $DB --listen 127.0.0.1:7883 &   # any <cosine>,<coverage>
+
+./target/release/lampl-bench run --subset full --reuse-run <run id> --server http://127.0.0.1:7882 --checkpoint sweep-off.jsonl
+```
+
+The server must embed queries with the same model (same digest) as the stored vectors; rows from another digest are skipped by the vector arm. Metal and CPU builds use the same model. Stop the servers when done and `docker stop` the container; `docker rm` or `docker volume rm` deletes the roughly eight hours of embedding.
