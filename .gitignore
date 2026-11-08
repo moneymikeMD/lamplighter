@@ -1,1 +1,3 @@
 /target
+# night-watchman per-session artefacts (cost, wave trail, closing state); config lives outside this public repo
+.night-watchman/
