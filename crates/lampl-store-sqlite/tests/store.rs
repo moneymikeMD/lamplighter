@@ -2,7 +2,7 @@
 
 //! Store tests mirroring the Postgres suite on hand-built vectors; they run in memory and need no services.
 
-use lampl_core::{EMBEDDING_DIM, Embedding, LinkType, MemoryType, NewMemory};
+use lampl_core::{CoverageNorm, EMBEDDING_DIM, Embedding, Floor, LinkType, MemoryType, NewMemory};
 use lampl_store_sqlite::{Direction, RecallQuery, SqliteStore};
 use uuid::Uuid;
 
@@ -285,5 +285,58 @@ fn stop_words_do_not_count_against_coverage() {
         (hits[0].coverage - 1.0).abs() < 1e-9,
         "coverage {}",
         hits[0].coverage
+    );
+}
+
+fn titles(hits: &[lampl_store_sqlite::RecallHit]) -> Vec<String> {
+    let mut t: Vec<String> = hits.iter().map(|h| h.memory.title.clone()).collect();
+    t.sort();
+    t
+}
+
+fn pre_lamp22_floor() -> Floor {
+    Floor {
+        cosine: 0.52,
+        coverage: 0.35,
+        coverage_norm: CoverageNorm::Plain,
+    }
+}
+
+#[test]
+fn default_floor_tests_capped_three_coverage_at_0_52() {
+    assert_eq!(RecallQuery::new("x").floor, Floor::default());
+    let mut s = store();
+
+    let long = project();
+    let words = [
+        "quokka", "lantern", "fjord", "tundra", "basalt", "cobalt", "zircon", "kayak", "falcon",
+    ];
+    s.store(new(&long, "three of nine", "quokka lantern fjord", None))
+        .unwrap();
+    for w in &words[3..] {
+        s.store(new(&long, &format!("filler {w}"), w, None))
+            .unwrap();
+    }
+    let mut q = RecallQuery::new(words.join(" "));
+    q.project = Some(long);
+    assert_eq!(titles(&s.recall(&q).unwrap()), ["three of nine"]);
+    q.floor = pre_lamp22_floor();
+    assert!(s.recall(&q).unwrap().is_empty());
+
+    let short = project();
+    s.store(new(&short, "rare", "kiwi", None)).unwrap();
+    s.store(new(&short, "common one", "comet", None)).unwrap();
+    s.store(new(&short, "common two", "comet", None)).unwrap();
+    for i in 0..7 {
+        s.store(new(&short, &format!("other {i}"), "unrelated text", None))
+            .unwrap();
+    }
+    let mut q = RecallQuery::new("kiwi comet");
+    q.project = Some(short);
+    assert_eq!(titles(&s.recall(&q).unwrap()), ["rare"]);
+    q.floor = pre_lamp22_floor();
+    assert_eq!(
+        titles(&s.recall(&q).unwrap()),
+        ["common one", "common two", "rare"]
     );
 }

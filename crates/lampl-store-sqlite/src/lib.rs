@@ -9,8 +9,8 @@ use std::sync::Once;
 
 use chrono::{DateTime, Utc};
 use lampl_core::{
-    EMBEDDING_DIM, Floor, Link, LinkType, Memory, NewMemory, RRF_K, fts_coverage, idf,
-    passes_floor, query_terms, relevance, rrf_fuse,
+    CoverageNorm, EMBEDDING_DIM, Floor, Link, LinkType, Memory, NewMemory, RRF_K, floor_coverage,
+    idf, passes_floor, query_terms, relevance, rrf_fuse,
 };
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use uuid::Uuid;
@@ -403,13 +403,13 @@ impl SqliteStore {
             return Ok(Vec::new());
         }
         let ids: Vec<Uuid> = fused.iter().map(|(id, _)| *id).collect();
-        let coverage = self.coverage(&terms, &ids, q.project.as_deref())?;
+        let coverage = self.coverage(&terms, &ids, q.project.as_deref(), q.floor.coverage_norm)?;
 
         let mut ranked: Vec<(Uuid, f64, Option<f64>, f64)> = Vec::new();
         for (id, score) in fused {
             let cosine = cosines.get(&id).copied();
-            let cov = coverage.get(&id).copied().unwrap_or(0.0);
-            if passes_floor(q.floor, cosine, cov) {
+            let (cov, floor_cov) = coverage.get(&id).copied().unwrap_or((0.0, 0.0));
+            if passes_floor(q.floor, cosine, floor_cov) {
                 ranked.push((id, score, cosine, cov));
             }
         }
@@ -437,7 +437,8 @@ impl SqliteStore {
         terms: &[String],
         ids: &[Uuid],
         project: Option<&str>,
-    ) -> Result<HashMap<Uuid, f64>, StoreError> {
+        norm: CoverageNorm,
+    ) -> Result<HashMap<Uuid, (f64, f64)>, StoreError> {
         if terms.is_empty() {
             return Ok(HashMap::new());
         }
@@ -471,7 +472,10 @@ impl SqliteStore {
         }
         Ok(matches
             .into_iter()
-            .map(|(id, set)| (id, fts_coverage(&term_idf, &set)))
+            .map(|(id, set)| {
+                let plain = floor_coverage(&term_idf, &set, CoverageNorm::Plain);
+                (id, (plain, floor_coverage(&term_idf, &set, norm)))
+            })
             .collect())
     }
 }

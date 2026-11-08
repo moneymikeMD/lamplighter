@@ -210,7 +210,7 @@ pub(crate) struct RecallOut {
     hits: Vec<HitOut>,
 }
 
-/// Benchmarking only: `LAMPL_RECALL_FLOOR=off` or `<cosine>,<coverage>` replaces the default relevance floor; unset keeps the shipped default.
+/// Benchmarking only: `LAMPL_RECALL_FLOOR=off` or `<cosine>,<coverage>` replaces the default floor's thresholds and keeps its coverage norm; unset keeps the shipped default.
 fn floor_override() -> Option<Floor> {
     static OVERRIDE: std::sync::OnceLock<Option<Floor>> = std::sync::OnceLock::new();
     *OVERRIDE.get_or_init(|| {
@@ -220,17 +220,19 @@ fn floor_override() -> Option<Floor> {
             return Some(Floor {
                 cosine: f64::NEG_INFINITY,
                 coverage: 0.0,
+                ..Floor::default()
             });
         }
         let (c, v) = v.split_once(',')?;
         Some(Floor {
             cosine: c.trim().parse().ok()?,
             coverage: v.trim().parse().ok()?,
+            ..Floor::default()
         })
     })
 }
 
-/// Benchmarking only: `LAMPL_RECALL_COVERAGE=salient:<k>` or `capped:<k>` changes the coverage the floor tests (see `CoverageNorm`); unset or `plain` keeps the shipped behaviour.
+/// Benchmarking only: `LAMPL_RECALL_COVERAGE=plain`, `salient:<k>` or `capped:<k>` changes the coverage the floor tests (see `CoverageNorm`); unset keeps the default `capped:3`.
 fn coverage_norm_override() -> Option<CoverageNorm> {
     static OVERRIDE: std::sync::OnceLock<Option<CoverageNorm>> = std::sync::OnceLock::new();
     *OVERRIDE.get_or_init(|| {
@@ -256,7 +258,7 @@ pub(crate) async fn recall(
         q.floor = f;
     }
     if let Some(n) = coverage_norm_override() {
-        q.coverage_norm = n;
+        q.floor.coverage_norm = n;
     }
     let embedded = if state.embed_status.is_ok() {
         let embedding = embed_texts(&state, vec![query_embed_text(&b.query)]);
