@@ -8,8 +8,8 @@ use axum::extract::{FromRequest, Path, Query, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use chrono::{DateTime, Utc};
+use lampl_core::{CoverageNorm, Floor, query_embed_text};
 use lampl_core::{Embedding, Link, LinkType, Memory, MemoryType, NewMemory};
-use lampl_core::{Floor, query_embed_text};
 use lampl_store_pg::{Direction, RecallQuery};
 use pgvector::HalfVector;
 use serde::{Deserialize, Serialize};
@@ -230,6 +230,21 @@ fn floor_override() -> Option<Floor> {
     })
 }
 
+/// Benchmarking only: `LAMPL_RECALL_COVERAGE=salient:<k>` or `capped:<k>` changes the coverage the floor tests (see `CoverageNorm`); unset or `plain` keeps the shipped behaviour.
+fn coverage_norm_override() -> Option<CoverageNorm> {
+    static OVERRIDE: std::sync::OnceLock<Option<CoverageNorm>> = std::sync::OnceLock::new();
+    *OVERRIDE.get_or_init(|| {
+        let v = std::env::var("LAMPL_RECALL_COVERAGE").ok()?;
+        match v.parse() {
+            Ok(n) => Some(n),
+            Err(e) => {
+                tracing::warn!(error = %e, "LAMPL_RECALL_COVERAGE ignored");
+                None
+            }
+        }
+    })
+}
+
 pub(crate) async fn recall(
     State(state): State<Arc<AppState>>,
     Json(b): Json<RecallBody>,
@@ -239,6 +254,9 @@ pub(crate) async fn recall(
     q.limit = b.limit.unwrap_or(10).clamp(1, MAX_LIMIT);
     if let Some(f) = floor_override() {
         q.floor = f;
+    }
+    if let Some(n) = coverage_norm_override() {
+        q.coverage_norm = n;
     }
     let embedded = if state.embed_status.is_ok() {
         let embedding = embed_texts(&state, vec![query_embed_text(&b.query)]);
