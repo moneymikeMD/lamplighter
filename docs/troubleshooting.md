@@ -23,7 +23,7 @@ problem.
 | `lampl audit` / `link` / `export` says it needs a server | Embedded mode has `store` and `recall` only | Use a server ([modes](modes/README.md)) |
 | ``missing; run `lampl init --local` `` | The embedded database file was deleted | Restore it or re-init; lampl will not open an empty store silently |
 | Plugin says `lampl` missing | Not on the `PATH` Claude Code sees | Install it ([install.md](install.md)); restart Claude Code |
-| Hook prints a timeout or goes quiet for five minutes | Its circuit breaker opened after a failure | `LAMPL_PUSH_BREAKER`, or fix the cause named in the one-line message; see [plugin.md](plugin.md) |
+| Hook prints a timeout, or memories go quiet for up to five minutes | Its circuit breaker opened after a failure; the next new session probes and closes it once recall works | `LAMPL_PUSH_BREAKER`, or fix the cause named in the one-line message; see [plugin.md](plugin.md) |
 | `docker compose` exits with `no database URL` | You are running the 0.1.0 `deploy/compose.yaml`, which set the wrong variable | Use the fixed file ([modes/docker-compose.md](modes/docker-compose.md)) |
 
 ## FAQ

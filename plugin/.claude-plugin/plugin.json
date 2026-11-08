@@ -1,6 +1,6 @@
 {
   "name": "lamplighter",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Agent memory for Claude Code: pushes relevant memories into the session, exposes lampl as MCP tools, and teaches when to store.",
   "author": { "name": "Mike Garrett" },
   "homepage": "https://github.com/moneymikeMD/lamplighter",

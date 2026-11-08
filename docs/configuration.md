@@ -35,8 +35,8 @@ Every setting, with where it is read. Verified against `crates/lampl/src` at 0.1
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `LAMPL_PUSH` | on | `0` turns the push off |
-| `LAMPL_PUSH_TIMEOUT` | `3` | Total budget in seconds |
-| `LAMPL_PUSH_RECALL_CAP` | `2.5` | Outer kill for the recall process, seconds |
+| `LAMPL_PUSH_TIMEOUT` | `4` | Total budget in seconds |
+| `LAMPL_PUSH_RECALL_CAP` | `3.5` | Outer kill for the recall process, seconds |
 | `LAMPL_PUSH_EMBED_MS` | `1500` | Embed timeout passed to `lampl recall` |
 | `LAMPL_PUSH_BREAKER` | `300` | Circuit-breaker window, seconds |
 | `LAMPL_PUSH_SKIP_WORDS` | `3` | Skip prompts with this many content words or fewer; `0` disables |
