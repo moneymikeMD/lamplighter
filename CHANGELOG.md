@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/moneymikeMD/lamplighter/compare/v0.2.0...v0.2.1) (2026-11-08)
+
+
+### Bug Fixes
+
+* **release:** keep Cargo.lock in step with the release version ([#31](https://github.com/moneymikeMD/lamplighter/issues/31)) ([3592270](https://github.com/moneymikeMD/lamplighter/commit/3592270aa22a6b6eedd22be8d86dbdd2666603fd))
+
 ## [0.2.0](https://github.com/moneymikeMD/lamplighter/compare/v0.1.0...v0.2.0) (2026-11-08)
 
 
