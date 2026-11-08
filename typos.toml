@@ -1,5 +1,5 @@
 [files]
-extend-exclude = ["Cargo.lock", "docs/bench/embed/texts-47.jsonl"]
+extend-exclude = ["Cargo.lock", "CHANGELOG.md", "docs/bench/embed/texts-47.jsonl"]
 
 [default.extend-identifiers]
 from_mmaped_safetensors = "from_mmaped_safetensors"
