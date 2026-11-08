@@ -18,7 +18,7 @@ problem.
 | `database schema version N is newer than this build understands` | An older binary against a newer database | Upgrade `lampl` |
 | `/health` says `degraded`, `embedder unavailable` | Model weights missing or the endpoint is down; recall is full-text only | `lampl doctor --fetch-model` on the server host, then restart `lampl serve`; check `--embed-endpoint` |
 | `/health` says degraded for vector coverage | Fewer than 95% of memories have vectors, for example right after a large import | Wait for the background worker; lower `--min-coverage` only if you accept it |
-| Recall prints nothing | Nothing cleared the floor (cosine 0.52 or coverage 0.35) | Rephrase as a question about the decision; try `--json`; confirm the memory exists with `get`; very small stores give weak IDF coverage |
+| Recall prints nothing | Nothing cleared the floor (cosine 0.52 or `capped:3` coverage 0.52) | Rephrase as a question about the decision; try `--json`; confirm the memory exists with `get`; very small stores give weak IDF coverage |
 | A memory I stored is missing from vector results | Not embedded yet (server mode embeds in the background) | It is found by full text at once; wait a few seconds |
 | `lampl audit` / `link` / `export` says it needs a server | Embedded mode has `store` and `recall` only | Use a server ([modes](modes/README.md)) |
 | ``missing; run `lampl init --local` `` | The embedded database file was deleted | Restore it or re-init; lampl will not open an empty store silently |
@@ -30,8 +30,9 @@ problem.
 
 **Do I need an API key or an LLM?** No. Storing and recalling make no model calls; embedding runs in the process on CPU.
 
-**Why did recall return nothing?** That is the relevance floor doing its job. On a private 138-query set it returned nothing for 9 of 19 queries that had no relevant memory without costing recall
-([ranking.md](ranking.md)). The `lampl` binary has no flag or variable for the floor; library users can set `Floor` on the store.
+**Why did recall return nothing?** That is the relevance floor doing its job. On a private 138-query set it returned nothing for 11 of 19 queries that had no relevant memory without costing recall
+(in-sample; [ranking.md](ranking.md)). The client has no flag or variable for the floor, and `lampl serve` reads only two benchmark overrides
+([configuration.md](configuration.md#benchmark-overrides)); library users can set `Floor` on the store.
 
 **Is anything sent to a third party?** No telemetry. The embedding model is downloaded from Hugging Face once, on request. See the README's Telemetry section.
 

@@ -36,9 +36,10 @@ Measured scores on this two-memory store (the best hit first; with only two memo
 | sessions getting evicted from redis | the gotcha 0.783 / 0.371, then the decision 0.651 / 0.128 |
 | kubernetes ingress timeout | none |
 
-The third prints nothing: no candidate reached cosine 0.52 or coverage 0.35. Use `--json` to get `{"hits":[],"warning":null}` instead of silence. A short, vague query such as `where do we keep
-sessions` returned both memories on this tiny store at low scores (cosine about 0.61 to 0.64, coverage 0.09), because with two memories the inverse-document-frequency weights are near zero and the cosine floor
-is the only filter; phrase recall queries the way you would phrase a question about a past decision.
+The third prints nothing: no candidate reached cosine 0.52 or coverage 0.52 (the floor tests coverage against the query's three rarest terms; the coverage shown is the plain share). Use `--json` to
+get `{"hits":[],"warning":null}` instead of silence. A short, vague query such as `where do we keep sessions` returned both memories on this tiny store at low scores (cosine about 0.61 to 0.64,
+coverage 0.09), because with two memories the inverse-document-frequency weights are near zero and the cosine floor is the only filter; phrase recall queries the way you would phrase a question about
+a past decision.
 
 Embedded mode supports only `store` and `recall`. For links, audit and export, use a server.
 

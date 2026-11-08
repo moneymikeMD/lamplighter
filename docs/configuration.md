@@ -73,3 +73,14 @@ The platform defaults come from the `dirs` crate; the Linux paths were observed 
 ## Benchmark and test variables
 
 `LAMPL_API_KEY` is also read by `lampl-bench`. `LAMPL_TEST_DATABASE_URL` points the Postgres-backed tests at a pgvector superuser (see [CONTRIBUTING.md](../CONTRIBUTING.md) and [cli.md](cli.md)).
+
+### Benchmark overrides
+
+Read once by `lampl serve` at the first recall; local mode reads neither. They exist for floor sweeps ([ranking.md](ranking.md)), not for production.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `LAMPL_RECALL_FLOOR` | cosine 0.52, coverage 0.52 | `off`, or `<cosine>,<coverage>` thresholds; keeps the coverage norm |
+| `LAMPL_RECALL_COVERAGE` | `capped:3` | How the floor's coverage is computed: `plain`, `salient:<k>` or `capped:<k>`; an unparsable value is logged and ignored |
+
+`LAMPL_RECALL_COVERAGE=plain LAMPL_RECALL_FLOOR=0.52,0.35` reproduces the floor before LAMP-22 (cosine 0.52, plain coverage 0.35).

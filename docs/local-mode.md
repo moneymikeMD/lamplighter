@@ -24,8 +24,9 @@ lampl init --local --prepare
 
 ## Storage
 
-`lampl-store-sqlite` uses `rusqlite` (bundled SQLite), an FTS5 table (`porter unicode61` tokenizer) ranked by `bm25`, and a `sqlite-vec` `vec0` table (`float[1024]`, cosine). `sqlite-vec` is pinned to exactly 0.1.9 (pre-v1; the
-0.1.10 builds are alpha). Fusion, the relevance floor and IDF coverage reuse `lampl-core` (`rrf_fuse`, `passes_floor`, `fts_coverage`), and the memory model, supersession and link semantics match the Postgres store.
+`lampl-store-sqlite` uses `rusqlite` (bundled SQLite), an FTS5 table (`porter unicode61` tokenizer) ranked by `bm25`, and a `sqlite-vec` `vec0` table (`float[1024]`, cosine). `sqlite-vec` is pinned to
+exactly 0.1.9 (pre-v1; the 0.1.10 builds are alpha). Fusion, the relevance floor and IDF coverage reuse `lampl-core` (`rrf_fuse`, `passes_floor`, `floor_coverage`), including the default `capped:3`
+floor coverage, and the memory model, supersession and link semantics match the Postgres store.
 
 The vector arm is an exact scan over active memories, not an index, which is fine at local-mode sizes.
 

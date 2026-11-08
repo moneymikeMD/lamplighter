@@ -47,8 +47,9 @@ Constraints, from the code:
 - The endpoint must return **1024-dimension** vectors; anything else is a dimension-mismatch error. Use a 1024-dimension model, ideally the same Qwen3-Embedding-0.6B.
 - The model digest recorded for endpoint vectors is the constant `endpoint`. Switching to a different endpoint model does not mark old vectors stale, so re-embed deliberately (export with
   `--no-vectors`, import into a fresh store) if you change models.
-- The relevance floor (cosine 0.52, coverage 0.35) was calibrated on Qwen3-Embedding-0.6B vectors. The earlier LAMP-19 sweep on Ollama Q8_0 vectors of the same model agreed with the in-process vectors, but the current default was tuned on the in-process vectors only (in-sample); other models need their
-  own calibration ([ranking.md](ranking.md)). The Ollama run of `bench-embed` for cosine agreement was not performed (UNVERIFIED).
+- The relevance floor (cosine 0.52, `capped:3` coverage 0.52) was calibrated on Qwen3-Embedding-0.6B vectors. The earlier LAMP-19 sweep on Ollama Q8_0 vectors of the same model agreed with the
+  in-process vectors, but the current default was tuned on the in-process vectors only (in-sample); other models need their own calibration ([ranking.md](ranking.md)). The Ollama run of `bench-embed`
+  for cosine agreement was not performed (UNVERIFIED).
 
 ## Degraded mode
 
