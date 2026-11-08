@@ -185,7 +185,7 @@ async fn unrelated_query_returns_nothing_through_the_floor() {
 }
 
 #[tokio::test]
-async fn rrf_orders_by_fused_rank_on_a_hand_built_fixture() {
+async fn survivors_order_by_cosine_plus_coverage_on_a_hand_built_fixture() {
     let Some(s) = store().await else { return };
     let p = project();
     let both = s
@@ -226,8 +226,8 @@ async fn rrf_orders_by_fused_rank_on_a_hand_built_fixture() {
         .collect();
     assert_eq!(
         ids,
-        vec![both.id, text_only.id, vec_only.id],
-        "fused order: both arms first, then the text-ranked, then the vector-only"
+        vec![both.id, vec_only.id, text_only.id],
+        "cosine plus coverage: both arms first, then the exact vector match, then the text-only match"
     );
 }
 

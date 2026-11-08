@@ -8,8 +8,8 @@ use axum::extract::{FromRequest, Path, Query, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use chrono::{DateTime, Utc};
-use lampl_core::Floor;
 use lampl_core::{Embedding, Link, LinkType, Memory, MemoryType, NewMemory};
+use lampl_core::{Floor, query_embed_text};
 use lampl_store_pg::{Direction, RecallQuery};
 use pgvector::HalfVector;
 use serde::{Deserialize, Serialize};
@@ -241,7 +241,7 @@ pub(crate) async fn recall(
         q.floor = f;
     }
     let embedded = if state.embed_status.is_ok() {
-        let embedding = embed_texts(&state, vec![b.query]);
+        let embedding = embed_texts(&state, vec![query_embed_text(&b.query)]);
         match b.embed_timeout_ms {
             Some(ms) => tokio::time::timeout(std::time::Duration::from_millis(ms), embedding)
                 .await

@@ -914,18 +914,19 @@ async fn pg_vector_recall_ignores_rows_embedded_by_another_model_digest() {
     };
     let h = harness(&db, FakeEmbedder::new(false)).await;
     let k = Some(h.key.as_str());
+    let query = "qqqq";
+    let title = "zebra crossing";
+    let body = "b".repeat(lampl_core::query_embed_text(query).len() - title.len() - 2);
     let r = call(
         &h.app,
         Method::POST,
         "/v1/memories",
         k,
-        Some(memory("zebra crossing", "stripes on a road")),
+        Some(memory(title, &body)),
     )
     .await;
     assert_eq!(r.status, StatusCode::CREATED);
     assert_eq!(embed_pending(&h.state).await.unwrap(), 1);
-    let query = "qqqq wwww eeee rrrr tttt yyyy uuu";
-    assert_eq!(query.len(), "zebra crossing\n\nstripes on a road".len());
     let ask = || json!({"query": query, "limit": 5});
     let before = call(&h.app, Method::POST, "/v1/recall", k, Some(ask())).await;
     assert_eq!(

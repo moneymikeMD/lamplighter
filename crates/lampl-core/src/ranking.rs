@@ -23,6 +23,19 @@ pub fn rrf_fuse<T: Clone + Eq + Hash>(rankings: &[Vec<T>], k: f64) -> Vec<(T, f6
     fused.into_iter().map(|(id, (s, _))| (id, s)).collect()
 }
 
+/// Final ordering key for candidates that cleared the floor: cosine plus IDF coverage (reciprocal-rank fusion only picks the candidates).
+pub fn relevance(cosine: Option<f64>, coverage: f64) -> f64 {
+    cosine.unwrap_or(0.0) + coverage
+}
+
+/// Task instruction Qwen3-Embedding expects in front of a query; stored memories are embedded without one.
+const QUERY_INSTRUCTION: &str = "Instruct: Given a description of a problem, retrieve stored memories about the same problem\nQuery:";
+
+/// The text a recall query is embedded from: the task instruction plus the lower-cased query, so results do not depend on query case.
+pub fn query_embed_text(query: &str) -> String {
+    format!("{QUERY_INSTRUCTION}{}", query.to_lowercase())
+}
+
 /// Lowercased alphanumeric query terms of two or more characters, deduplicated, in order.
 pub fn query_terms(query: &str) -> Vec<String> {
     let mut seen = HashSet::new();
@@ -77,6 +90,15 @@ pub fn passes_floor(floor: Floor, cosine: Option<f64>, coverage: f64) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn query_embed_text_ignores_case() {
+        assert_eq!(
+            super::query_embed_text("Fix THE Build"),
+            super::query_embed_text("fix the build")
+        );
+        assert!(super::query_embed_text("Fix").ends_with("Query:fix"));
+    }
+
     use super::*;
 
     #[test]
