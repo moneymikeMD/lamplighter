@@ -49,7 +49,7 @@ Links need a server. `related ID` returns links in both directions, labelled `ou
 ## How a memory is found
 
 Recall is hybrid and can return nothing. Full-text and vector search each propose 50 candidates, reciprocal-rank fusion merges them, and a relevance floor drops candidates that are neither close in
-meaning (cosine 0.70) nor covered by the query's terms (IDF coverage 0.18). The reasoning and the sweep behind those numbers are in [ranking.md](ranking.md). In server mode, a new memory is stored
+meaning (cosine 0.52) nor covered by the query's terms (IDF coverage 0.35). The reasoning and the sweep behind those numbers are in [ranking.md](ranking.md). In server mode, a new memory is stored
 first and embedded by a background worker within seconds; until then it is found by full text.
 
 ## Where the agent meets it

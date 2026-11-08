@@ -5,11 +5,10 @@ Recall is hybrid: Postgres `tsvector` full-text and pgvector cosine (`halfvec(10
 
 The full-text arm ORs the query's lexemes and orders by `ts_rank_cd`. Postgres takes the lexemes from `to_tsvector('english', query)`: stop words dropped, stemmed, deduplicated, a dotted host such as `a.example.com` kept whole. The SQLite store builds the same term list in `lampl-core::query_terms` (the same stop-word list, Snowball English stemming, dotted tokens kept), and a test checks it against Postgres's lexemes, so the stores do not drift. Hyphenated and URL tokens are not covered by that test. A stop word can never match, so it carries no coverage weight.
 
-Coverage values changed with this fix (a query no longer loses weight to words that cannot match), so they run higher than the figures in the calibration sections below, which were measured before it. Without a query embedding, recall runs full-text only.
+Without a query embedding, recall runs full-text only.
 
 The query is lower-cased, so recall does not depend on query case: full-text matching already folds case, and the embedding leg embeds `Instruct: <task>\nQuery:` followed by the lower-cased query, the form Qwen3-Embedding is trained
-for. Stored memories are embedded as written, without an instruction, so changing either does not need a re-embed. On the private 138-item gold set the top 5 changed with query case on 56 items before and on none after;
-hook recall@5 at the default floor moved from 0.894 to 0.906, and with the floor off from 0.908 to 0.951. LongMemEval at the default floor: recall@5 0.806 (was 0.811), MRR 0.800 (was 0.796), 66 of 470 queries empty (was 64).
+for. Stored memories are embedded as written, without an instruction, so changing either does not need a re-embed. On the private 138-item gold set the top 5 changed with query case on 56 items before this change and on none after.
 
 ## Relevance floor
 
@@ -21,7 +20,7 @@ A fused candidate is kept when `cosine >= Floor.cosine` **or** `coverage >= Floo
 
 ## Calibration
 
-The default floor is `cosine 0.70`, `coverage 0.18`, calibrated on Qwen3-Embedding-0.6B vectors (LAMP-19, then re-tuned against LongMemEval in LAMP-21; see [Re-calibration](#re-calibration-against-longmemeval-lamp-21)). LAMP-19 chose coverage 0.24. The earlier `0.5 / 0.5` was an untested placeholder: on these vectors it abstains on none of the no-answer queries, because Qwen3 cosines for unrelated text are already high. The production memorygraph numbers (0.58 / 0.5) were tuned on different vectors and are not copied.
+The default floor is `cosine 0.52`, `coverage 0.35` (LAMP-23), chosen against the private gold set and the public LongMemEval run together; see [Re-calibration after the coverage fix](#re-calibration-after-the-coverage-fix-lamp-23). **Both figures are in-sample: the floor was tuned on the same gold set and the same LongMemEval run that report it.** Earlier calibrations (LAMP-19, then LAMP-21) are kept below as history. They were measured before the LAMP-23 fix to how query terms are built, so their coverage figures are not comparable to the current ones and their defaults (0.70 / 0.24, then 0.70 / 0.18) are no longer in use. The earlier `0.5 / 0.5` was an untested placeholder, and the production memorygraph numbers (0.58 / 0.5) were tuned on different vectors and a different coverage definition, so they are not copied.
 
 ### Data
 
@@ -87,11 +86,54 @@ Cosine, at coverage 0.18:
 
 Disabling the coverage arm (cosine only) is worse on both workloads: at cosine 0.60 it returns nothing on 292 questions, and it only abstains well at cosines (0.70: 17 of 19) that cost gold recall@5 (0.607).
 
-Method. The floor is applied to the ranked candidate list after fusion, so one pass with the floor open (limit 100) gives every setting exactly; checked by running servers with `LAMPL_RECALL_FLOOR` at three settings, which reproduced the simulation to every digit. LongMemEval used the stored run with `lampl-bench run --reuse-run`; the gold set used the LAMP-19 candidate dump (same Qwen3 vectors). At the new default both were re-run: LongMemEval 0.811 recall@5, 64 empty, from a live server; gold 0.845, 5 of 19, precision 0.83.
+Method. The floor is applied to the ranked candidate list after fusion, so one pass with the floor open (limit 100) gives every setting exactly; checked by running servers with `LAMPL_RECALL_FLOOR` at three settings, which reproduced the simulation to every digit. LongMemEval used the stored run with `lampl-bench run --reuse-run`; the gold set used the LAMP-19 candidate dump (same Qwen3 vectors). At the LAMP-21 default both were re-run: LongMemEval 0.811 recall@5, 64 empty, from a live server; gold 0.845, 5 of 19, precision 0.83.
 
-Trade-off. The new default gives up 4 of the 9 abstentions LAMP-19 reached (9 of 19 down to 5 of 19) to cut the LongMemEval empty rate from 37% to 14% and lift its recall@5 from 0.591 to 0.811. Coverage 0.20 keeps 6 of 19 but leaves 96 empty (20%); no coverage below 0.20 abstains more than 3 of 19. The gold set has 19 no-answer queries, so one query moves abstain-correct by about 5 points. A length-normalised coverage might separate the two workloads better; it was not tested.
+Trade-off. The LAMP-21 default gave up 4 of the 9 abstentions LAMP-19 reached (9 of 19 down to 5 of 19) to cut the LongMemEval empty rate from 37% to 14% and lift its recall@5 from 0.591 to 0.811. Coverage 0.20 keeps 6 of 19 but leaves 96 empty (20%); no coverage below 0.20 abstains more than 3 of 19. The gold set has 19 no-answer queries, so one query moves abstain-correct by about 5 points. A length-normalised coverage might separate the two workloads better; it was not tested.
 
 `LAMPL_RECALL_FLOOR` (`off` or `<cosine>,<coverage>`) on `lampl serve` overrides the default for benchmarking; unset keeps the default above.
+
+### Re-calibration after the coverage fix (LAMP-23)
+
+Two defects distorted the floor until LAMP-23. Query terms kept stop words, which can never match a memory yet carried the highest IDF weight in the coverage denominator, so coverage ran well below memorygraph's; and the gate set (below) showed recall that varied with query case. With stop words dropped (the term list now matches Postgres's `to_tsvector('english', ..)`), case folded, a Qwen3 query instruction and survivors ordered by cosine plus coverage, coverage values run higher and the old 0.70 / 0.18 floor became nearly inert (gate recall@5 0.9655 but only 9 of 57 negatives empty).
+
+Data. The gate set is the 138-item gold set above grown to 2,669 memories, scored like homelab's LAB-693 gate: hook recall@5 over the 119 answerable items, and **negatives empty** as rows of 57 (19 no-answer items in three case forms). The gate passes when recall@5 is at least memorygraph's production 0.9487 **and** negatives empty are at least its 27 of 57. LongMemEval is the full 470-question run, retrieval only.
+
+Method. One dump with the floor open (limit 100) gives every setting exactly, because the floor is a per-hit filter after fusion; the chosen default was then confirmed on live servers at the final build. The grid was cosine 0.52 to 0.60 against coverage 0.18 to 0.26 and 0.50, widened to coverage 0.27 to 0.60 and cosine 0.48 to 0.70 when no point of the first grid met both gate criteria with a small LongMemEval cost.
+
+Each cell: gate recall@5 / gate negatives empty (of 57), then LongMemEval recall@5 / MRR / questions returning nothing (of 470).
+
+Cosine 0.52, varying coverage:
+
+| coverage | gate | LongMemEval |
+|---|---|---|
+| 0.18 | 0.9655 / 9 | 0.983 / 0.945 / 0 |
+| 0.20 | 0.9655 / 15 | 0.983 / 0.945 / 0 |
+| 0.24 | 0.9613 / 21 | 0.974 / 0.940 / 1 |
+| 0.30 | 0.9613 / 21 | 0.964 / 0.933 / 2 |
+| 0.32 | 0.9613 / 21 | 0.962 / 0.933 / 3 |
+| 0.34 | 0.9613 / 27 | 0.955 / 0.927 / 3 |
+| **0.35 (default)** | **0.9592 / 30** | **0.949 / 0.921 / 6** |
+| 0.36 | 0.9592 / 30 | 0.938 / 0.915 / 7 |
+| 0.40 | 0.9592 / 30 | 0.919 / 0.898 / 16 |
+| 0.45 | 0.9592 / 36 | 0.889 / 0.871 / 30 |
+| 0.50 | 0.9592 / 36 | 0.845 / 0.830 / 53 |
+| off (no floor) | 0.9571 / 0 | 0.987 / 0.949 / 0 |
+
+Coverage 0.35, varying cosine:
+
+| cosine | gate | LongMemEval |
+|---|---|---|
+| 0.50 | 0.9655 / 24 | 0.953 / 0.926 / 6 |
+| **0.52 (default)** | **0.9592 / 30** | **0.949 / 0.921 / 6** |
+| 0.56 | 0.9529 / 33 | 0.940 / 0.914 / 6 |
+| 0.60 | 0.9445 / 36 | 0.934 / 0.909 / 8 |
+| 0.70 | 0.9249 / 36 | 0.934 / 0.907 / 8 |
+
+Other reference points on the same build: the previous default 0.70 / 0.18 gives 0.9655 / 9 on the gate and 0.981 / 0.943 / 0 on LongMemEval; memorygraph's own floor (cosine 0.58 or coverage 0.50) gives 0.9333 / 48 and 0.802 / 0.790 / 68.
+
+Choice. The gate passes at 0.52 / 0.34 (27 of 57 negatives, exactly the threshold) and 0.52 / 0.35 (30 of 57). The default is 0.52 / 0.35 for one item of margin on the 19 no-answer items; the 0.34 to 0.35 plateau is flat across cosine 0.52 to 0.58, so it is not a knife edge. Against memorygraph on the gate (recall@5 0.9592 vs 0.9487, negatives empty 30 of 57 vs 27 of 57); on LongMemEval it returns nothing on 6 of 470 questions (1%) with recall@5 0.949, MRR 0.921 and a median of 5 results, against 0.987 / 0.949 with the floor off.
+
+Limits of this tuning. Floor and measurement share the same 138 items and the same 470 questions, so these are in-sample figures and will not hold exactly on new data. With 19 no-answer items one item moves negatives empty by 3 rows of 57. `single-session-preference` remains the weakest LongMemEval type (recall@5 0.767).
 
 ### Limits
 

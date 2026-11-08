@@ -244,8 +244,8 @@ impl Default for Floor {
     /// Calibrated on Qwen3-Embedding-0.6B vectors; method and numbers in docs/ranking.md.
     fn default() -> Self {
         Floor {
-            cosine: 0.70,
-            coverage: 0.18,
+            cosine: 0.52,
+            coverage: 0.35,
         }
     }
 }

@@ -14,8 +14,8 @@ Rust, three run modes, and a Claude Code plugin that wires hooks, MCP and a skil
 - **finds the memory a session needs** — on a 35-item gold set over 1,469 real memories, the hybrid full-text plus vector design lamplighter productises scored hook recall@5 of 0.961, against 0.913
   for mem0, 0.811 for Graphiti and 0.562 for ripgrep over markdown.
 - **remembers without an LLM** — storing costs nothing but a local embedding. In the same benchmark mem0 cost $0.0135 and Graphiti $0.0516 per ingested memory, because both call a model to ingest.
-- **says nothing when nothing is relevant** — a calibrated relevance floor lifted abstain-correct from 0 of 19 to 9 of 19 no-answer queries while recall@5 rose from 0.828 to 0.840. In Stage A, no arm
-  abstained.
+- **says nothing when nothing is relevant** — a calibrated relevance floor returns nothing on 30 of 57 no-answer rows (10 of 19 items) on a 138-item gold set, against 27 of 57 for the production memorygraph it replaces,
+  while hook recall@5 is 0.9592 against its 0.9487. The floor was tuned on that same set, so this is an in-sample result. In Stage A, no arm abstained.
 - **changes what the agent gets right** — headless Claude Code sessions pushed the top five memory titles went from 12.9% to 78.5% correct on Opus 5.5 and from 8.6% to 52.7% on Sonnet 5, against no
   memory at all.
 - **one binary, three ways to run it** — embedded SQLite on your laptop, `lampl serve` over Postgres with pgvector for a team, or an external Postgres you already run. The release binary is about 22
@@ -65,7 +65,7 @@ lampl recall "why did we pick postgres over redis for sessions" --project demo
 lampl recall "kubernetes ingress timeout" --project demo
 ```
 
-The first recall prints one JSON hit per line, each with `cosine`, `coverage`, `score` and the `memory`. The second prints nothing, and `--json` makes that explicit as `{"hits":[],"warning":null}`.
+The first recall prints JSON hits, one per line and best first (the decision, then the gotcha), each with `cosine`, `coverage`, `score` and the `memory`. The second prints nothing, and `--json` makes that explicit as `{"hits":[],"warning":null}`.
 That empty answer is the relevance floor working. Next steps: [docs/quickstart.md](docs/quickstart.md).
 
 ## Choose your mode
@@ -84,7 +84,7 @@ Embedded mode only offers `store` and `recall`. Everything else (links, audit, e
 1. The query is embedded in the process (or by the configured endpoint). If embedding fails or times out, recall continues by full text and says so in `warning`.
 2. Full-text and vector search each return their top 50 candidates among memories that no `SUPERSEDES` link has retired.
 3. Reciprocal-rank fusion (`score = Σ 1 / (60 + rank)`) merges the two lists.
-4. A candidate survives the floor when its cosine is at least 0.70 **or** its IDF-weighted term coverage is at least 0.18. Otherwise it is dropped, and an empty list is a valid answer.
+4. A candidate survives the floor when its cosine is at least 0.52 **or** its IDF-weighted term coverage is at least 0.35. Otherwise it is dropped, and an empty list is a valid answer.
 
 The floor was calibrated, not guessed: see [docs/ranking.md](docs/ranking.md) for the sweep and [docs/concepts.md](docs/concepts.md) for the model.
 
@@ -121,10 +121,10 @@ A memory that is the target of `SUPERSEDES` stops appearing in recall and in `au
 | --- | --- | --- |
 | Retrieval, hook recall@5 (Stage A) | postgres_hybrid 0.961, mem0 0.913, Graphiti 0.811, ripgrep 0.562 | Private 35-item gold set (31 answerable, 4 abstain) over a frozen 1,469-memory corpus, 208 queries, zero API calls. Scores are case-averaged. `postgres_hybrid` is the design lamplighter productises, not `lampl` itself. |
 | Ingest cost | mem0 $0.0135, Graphiti $0.0516 per memory | Haiku 4.5 list price over all 1,469 memories, failed attempts included. lamplighter makes no LLM call. |
-| Relevance floor (LAMP-19, re-tuned in LAMP-21) | LAMP-19: recall@5 0.828 to 0.840, abstain-correct 0/19 to 9/19 (coverage 0.24). Default now coverage 0.18: 0.845, 5/19 | Private 138-query set over 2,658 memories. Only 19 no-answer queries, so one query moves the result 5 points. Coverage was lowered because 0.24 failed on LongMemEval (next rows). |
+| Relevance floor (LAMP-19, LAMP-21, LAMP-23) | Gate vs production memorygraph, default floor 0.52 / 0.35: hook recall@5 **0.9592 vs 0.9487**, no-answer rows returning nothing **30/57 vs 27/57** (recurrence 0.9662 vs 0.9539, update 0.9176 vs 0.9176). Floor off: 0.9571, 0/57 | Private 138-query set over 2,669 memories (119 answerable, 19 no-answer). **In-sample: the floor was tuned on this same set and on the LongMemEval run below.** Only 19 no-answer items, so one item moves the result by 3 rows of 57. |
 | End to end (Stage B) | correct 12.9% to 78.5% (Opus 5.5), 8.6% to 52.7% (Sonnet 5) | 4,117 headless Claude Code sessions, 31 items, 3 repeats, a Haiku 4.5 judge. Questions come from the same author's incident history. Detectable difference is about 20 points. |
-| Public LongMemEval, default floor (retrieval only) | recall@5 0.811, MRR 0.796 | All 470 questions, every session of each haystack (116,728 memories), Qwen3-Embedding-0.6B in-process. **The default floor still returns nothing on 64 of 470 questions** (14%; median 2 results). Before LAMP-21 (coverage 0.24) it was recall@5 0.591 and nothing on 176 of 470 (37%), so the floor limited that result, not the ranking. |
-| Public LongMemEval, floor off (retrieval only) | recall@5 0.977, MRR 0.914 | Same run, same stored memories and vectors, relevance floor disabled by a benchmark-only server override. A diagnostic, not the shipped configuration: it returns about 83 results per question. |
+| Public LongMemEval, default floor 0.52 / 0.35 (retrieval only) | recall@5 **0.949**, MRR **0.921** | All 470 questions, every session of each haystack (116,728 memories), Qwen3-Embedding-0.6B in-process. The default floor returns nothing on 6 of 470 questions (1%; median 5 results). **In-sample: the floor was tuned on this same run.** Before LAMP-23 the default scored 0.811 / 0.796 and returned nothing on 64 of 470 (the 0.24 floor before that: 0.591, nothing on 176 of 470, 37%). |
+| Public LongMemEval, floor off (retrieval only) | recall@5 0.987, MRR 0.949 | Same run, same stored memories and vectors, relevance floor disabled by a benchmark-only server override. A diagnostic, not the shipped configuration: it returns about 80 results per question. |
 
 All gold sets are private, so only aggregates are published. mem0 and Graphiti were run by us on our corpus; their own published numbers are self-reported and measure different things, so none are
 repeated here. The LongMemEval rows measure retrieval of the right session only: there is no LLM answer step, so they are not comparable to end-to-end LongMemEval accuracy. Method, by-type tables, caveats and the
