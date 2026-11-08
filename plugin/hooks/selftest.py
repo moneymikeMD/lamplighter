@@ -173,11 +173,22 @@ def main():
         rig.clear()
         rig.fire("boom", prompt=prompt, session="A")
         code, out = rig.fire("boom", prompt="another question about the embedding queue retries", session="B")
-        check("B1: session B gets its own notice while the breaker is open", out and "boom" in out["systemMessage"],
-              str(out))
+        check("B1: session B skips quietly while the breaker is open", out is None, str(out))
         check("B1: the open breaker did not call lampl again", rig.calls_made() == 1)
-        code, out = rig.fire("boom", prompt="a third question about the embedding queue retries", session="B")
-        check("B1: session B stays quiet after its one notice", out is None)
+
+        code, out = rig.fire("boom", event="SessionStart", source="startup", session="C")
+        check("B6: a new session probes the open breaker", rig.calls_made() == 2)
+        check("B6: a failed probe tells only the probing session", out and "boom" in out["systemMessage"], str(out))
+        check("B6: a failed probe keeps the breaker open", os.path.exists(os.path.join(rig.state, "breaker")))
+        code, out = rig.fire("boom", event="SessionStart", source="startup", session="C")
+        check("B6: a session probes only once", out is None and rig.calls_made() == 2, str(out))
+
+        code, out = rig.fire("hits", event="SessionStart", source="startup", session="D")
+        check("B6: a successful probe pushes memories", out is not None and "## Title 1" in context(out), str(out))
+        check("B6: a successful probe closes the breaker", not os.path.exists(os.path.join(rig.state, "breaker")))
+        code, out = rig.fire("hits", prompt="a third question about the embedding queue retries", session="B")
+        check("B6: other sessions recall again once the probe closes the breaker", out is not None
+              and rig.calls_made() == 4, str(out))
 
         rig.clear()
         code, out = rig.fire("warn", prompt=prompt)

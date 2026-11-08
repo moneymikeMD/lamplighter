@@ -2,7 +2,8 @@
 # Ported from night-watchman hooks/memory-push.py. Copyright (c) Mike Garrett, MIT License; see NOTICE.
 #
 # Reads one hook payload on stdin, calls `lampl recall --json`, and prints at most one JSON object on stdout.
-# Each memory is injected once per session. Always exits 0. Failures are reported once per session, never silently.
+# Each memory is injected once per session. Always exits 0. A failure is reported to the session that hit it; while
+# the shared breaker is open other sessions skip quietly, and a new session's SessionStart probes once to close it.
 
 import hashlib
 import json
@@ -18,9 +19,9 @@ LIMIT = 5
 BODIES = 3
 BODY_CHARS = 1250
 QUERY_CHARS = 400
-DEFAULT_BUDGET = 3.0
+DEFAULT_BUDGET = 4.0
 DEFAULT_BREAKER = 300.0
-RECALL_CAP = 2.5
+RECALL_CAP = 3.5
 EMBED_TIMEOUT_MS = 1500
 GIT_BUDGET = 0.8
 REAP_SECONDS = 0.5
@@ -174,13 +175,13 @@ def session_query(cwd, deadline):
 
 
 class State:
-    """Per-session record of answered queries (q), injected memory ids (m) and shown notices (n), plus the breaker."""
+    """Per-session record of answered queries (q), injected memory ids (m), shown notices (n) and breaker probes (p)."""
 
     def __init__(self, session_id):
         self.dir = os.environ.get("LAMPL_PUSH_STATE") or os.path.join(tempfile.gettempdir(), "lamplighter-push")
         name = re.sub(r"[^A-Za-z0-9_-]", "_", session_id) if session_id else ""
         self.path = os.path.join(self.dir, "session-" + name) if name else None
-        self.seen = {"q": set(), "m": set(), "n": set()}
+        self.seen = {"q": set(), "m": set(), "n": set(), "p": set()}
         if self.path:
             try:
                 with open(self.path) as fh:
@@ -200,7 +201,7 @@ class State:
             pass
 
     def reset(self):
-        self.seen = {"q": set(), "m": set(), "n": set()}
+        self.seen = {"q": set(), "m": set(), "n": set(), "p": set()}
         if self.path:
             self._write("", "w")
 
@@ -227,6 +228,12 @@ class State:
             os.makedirs(self.dir, mode=0o700, exist_ok=True)
             with open(os.path.join(self.dir, "breaker"), "w") as fh:
                 json.dump({"kind": kind, "message": message}, fh)
+        except OSError:
+            pass
+
+    def close_breaker(self):
+        try:
+            os.remove(os.path.join(self.dir, "breaker"))
         except OSError:
             pass
 
@@ -317,12 +324,10 @@ def main():
         return
     tripped = state.breaker(env_float("LAMPL_PUSH_BREAKER", DEFAULT_BREAKER))
     if tripped is not None:
-        kind = tripped.get("kind")
-        log({"event": event, "outcome": "breaker"})
-        if kind and tripped.get("message") and kind not in state.seen["n"]:
-            state.record("n", [kind])
-            emit(event, "", tripped["message"])
-        return
+        if event != "SessionStart" or "breaker" in state.seen["p"]:
+            log({"event": event, "outcome": "breaker"})
+            return
+        state.record("p", ["breaker"])
     query = query_for(event, data, cwd, deadline)
     if not query:
         return
@@ -351,6 +356,8 @@ def main():
             emit(event, "", message)
         return
     results, warning = parsed
+    if tripped is not None:
+        state.close_breaker()
     state.record("q", [digest])
     notice = ""
     if warning:
