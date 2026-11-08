@@ -66,7 +66,7 @@ impl Default for Floor {
     fn default() -> Self {
         Floor {
             cosine: 0.70,
-            coverage: 0.24,
+            coverage: 0.18,
         }
     }
 }

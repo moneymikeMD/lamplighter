@@ -18,7 +18,7 @@ problem.
 | `database schema version N is newer than this build understands` | An older binary against a newer database | Upgrade `lampl` |
 | `/health` says `degraded`, `embedder unavailable` | Model weights missing or the endpoint is down; recall is full-text only | `lampl doctor --fetch-model` on the server host, then restart `lampl serve`; check `--embed-endpoint` |
 | `/health` says degraded for vector coverage | Fewer than 95% of memories have vectors, for example right after a large import | Wait for the background worker; lower `--min-coverage` only if you accept it |
-| Recall prints nothing | Nothing cleared the floor (cosine 0.70 or coverage 0.24) | Rephrase as a question about the decision; try `--json`; confirm the memory exists with `get`; very small stores give weak IDF coverage |
+| Recall prints nothing | Nothing cleared the floor (cosine 0.70 or coverage 0.18) | Rephrase as a question about the decision; try `--json`; confirm the memory exists with `get`; very small stores give weak IDF coverage |
 | A memory I stored is missing from vector results | Not embedded yet (server mode embeds in the background) | It is found by full text at once; wait a few seconds |
 | `lampl audit` / `link` / `export` says it needs a server | Embedded mode has `store` and `recall` only | Use a server ([modes](modes/README.md)) |
 | ``missing; run `lampl init --local` `` | The embedded database file was deleted | Restore it or re-init; lampl will not open an empty store silently |

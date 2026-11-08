@@ -84,7 +84,7 @@ Embedded mode only offers `store` and `recall`. Everything else (links, audit, e
 1. The query is embedded in the process (or by the configured endpoint). If embedding fails or times out, recall continues by full text and says so in `warning`.
 2. Full-text and vector search each return their top 50 candidates among memories that no `SUPERSEDES` link has retired.
 3. Reciprocal-rank fusion (`score = Σ 1 / (60 + rank)`) merges the two lists.
-4. A candidate survives the floor when its cosine is at least 0.70 **or** its IDF-weighted term coverage is at least 0.24. Otherwise it is dropped, and an empty list is a valid answer.
+4. A candidate survives the floor when its cosine is at least 0.70 **or** its IDF-weighted term coverage is at least 0.18. Otherwise it is dropped, and an empty list is a valid answer.
 
 The floor was calibrated, not guessed: see [docs/ranking.md](docs/ranking.md) for the sweep and [docs/concepts.md](docs/concepts.md) for the model.
 
@@ -121,10 +121,10 @@ A memory that is the target of `SUPERSEDES` stops appearing in recall and in `au
 | --- | --- | --- |
 | Retrieval, hook recall@5 (Stage A) | postgres_hybrid 0.961, mem0 0.913, Graphiti 0.811, ripgrep 0.562 | Private 35-item gold set (31 answerable, 4 abstain) over a frozen 1,469-memory corpus, 208 queries, zero API calls. Scores are case-averaged. `postgres_hybrid` is the design lamplighter productises, not `lampl` itself. |
 | Ingest cost | mem0 $0.0135, Graphiti $0.0516 per memory | Haiku 4.5 list price over all 1,469 memories, failed attempts included. lamplighter makes no LLM call. |
-| Relevance floor (LAMP-19) | recall@5 0.828 to 0.840, abstain-correct 0/19 to 9/19 | Private 138-query set over 2,658 memories. Only 19 no-answer queries, so one query moves the result 5 points. |
+| Relevance floor (LAMP-19, re-tuned in LAMP-21) | LAMP-19: recall@5 0.828 to 0.840, abstain-correct 0/19 to 9/19 (coverage 0.24). Default now coverage 0.18: 0.845, 5/19 | Private 138-query set over 2,658 memories. Only 19 no-answer queries, so one query moves the result 5 points. Coverage was lowered because 0.24 failed on LongMemEval (next rows). |
 | End to end (Stage B) | correct 12.9% to 78.5% (Opus 5.5), 8.6% to 52.7% (Sonnet 5) | 4,117 headless Claude Code sessions, 31 items, 3 repeats, a Haiku 4.5 judge. Questions come from the same author's incident history. Detectable difference is about 20 points. |
-| Public LongMemEval, shipped floor (retrieval only) | recall@5 0.591, MRR 0.588 | All 470 questions, every session of each haystack (116,728 memories), Qwen3-Embedding-0.6B in-process. **The shipped floor returns nothing on 176 of 470 questions** (median 1 result), so the floor, not the ranking, limits this row. |
-| Public LongMemEval, floor off (retrieval only) | recall@5 0.977, MRR 0.914 | Same run, same stored memories and vectors, relevance floor disabled by a benchmark-only server override. A diagnostic, not the shipped configuration; the right floor for conversational retrieval is not yet calibrated. |
+| Public LongMemEval, default floor (retrieval only) | recall@5 0.811, MRR 0.796 | All 470 questions, every session of each haystack (116,728 memories), Qwen3-Embedding-0.6B in-process. **The default floor still returns nothing on 64 of 470 questions** (14%; median 2 results). Before LAMP-21 (coverage 0.24) it was recall@5 0.591 and nothing on 176 of 470 (37%), so the floor limited that result, not the ranking. |
+| Public LongMemEval, floor off (retrieval only) | recall@5 0.977, MRR 0.914 | Same run, same stored memories and vectors, relevance floor disabled by a benchmark-only server override. A diagnostic, not the shipped configuration: it returns about 83 results per question. |
 
 All gold sets are private, so only aggregates are published. mem0 and Graphiti were run by us on our corpus; their own published numbers are self-reported and measure different things, so none are
 repeated here. The LongMemEval rows measure retrieval of the right session only: there is no LLM answer step, so they are not comparable to end-to-end LongMemEval accuracy. Method, by-type tables, caveats and the

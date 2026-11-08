@@ -12,7 +12,7 @@ belongs to another project it is marked self-reported and linked.
 | Relevance floor calibration | recall@5 0.828 to 0.840; abstain-correct 0/19 to 9/19 | Aggregates only | Done, LAMP-19 |
 | Stage B end to end | correct 12.9% to 78.5% (Opus 5.5) | Aggregates only | Done, 2026-09-28 |
 | In-process embedding latency | 117 ms p50 short query on an M2 | Yes, [bench/embed](bench/embed/report.md) | Done |
-| LongMemEval retrieval (public) | smoke run only, recall@5 0.667 on 6 questions | Yes, reproducible | **Full run not done** |
+| LongMemEval retrieval (public, retrieval only) | all 470 questions: recall@5 0.811, MRR 0.796 at the default floor; 0.977 / 0.914 with the floor off | Yes, reproducible | Done; see [bench/public/README.md](bench/public/README.md) |
 
 ## Stage A: retrieval on a frozen corpus
 
@@ -39,7 +39,7 @@ belongs to another project it is marked self-reported and linked.
 ## Relevance floor (LAMP-19)
 
 On a private set of 138 real hook-style queries against 2,658 memories (102 recurrence, 17 update, 19 no-answer), with Qwen3 vectors: no floor gives recall@5 0.828 and abstains correctly on 0 of 19;
-the chosen floor (cosine 0.70 or coverage 0.24) gives recall@5 0.840, 9 of 19 abstains and abstain precision 0.75. The full sweep and method are in [ranking.md](ranking.md). With 19 no-answer queries
+the LAMP-19 floor (cosine 0.70 or coverage 0.24) gave recall@5 0.840, 9 of 19 abstains and abstain precision 0.75. LAMP-21 then re-tuned coverage to 0.18 against the public LongMemEval run: gold recall@5 0.845, 5 of 19 abstains, precision 0.83, and LongMemEval recall@5 0.591 to 0.811 (empty results 176 to 64 of 470). The full sweeps and method are in [ranking.md](ranking.md). With 19 no-answer queries
 a single query moves the result by about five points, and the corpus is one author's store.
 
 ## Stage B: end to end
@@ -63,9 +63,7 @@ a single query moves the result by about five points, and the corpus is one auth
 `lampl-bench` measures retrieval of the right past conversation on the public [LongMemEval](https://github.com/xiaowu0162/LongMemEval) dataset, with no LLM judge and no API key. Method, metrics and
 the run command are in [bench/public/README.md](bench/public/README.md). The licence finding is in [bench/public/datasets.md](bench/public/datasets.md).
 
-**Status: the full 470-question run has not been done.** The only run is a 6-question smoke run (`--subset ci`, one question per type, haystacks cut to 12 sessions) that scored recall@5 0.667 and MRR
-0.667. One question moves a figure by 0.167, and the cut haystack makes retrieval easier than the real 48-session haystack. Treat it as proof the harness works end to end. At the measured speed (23
-minutes for 354 memories) the full set would take days of CPU, so it needs a faster embedder or a GPU. Until a full run is published, lamplighter makes no public-benchmark quality claim.
+**Status: the full 470-question run is done** (retrieval only: no LLM answer step, so it is not comparable to end-to-end LongMemEval accuracy). At the default floor (cosine 0.70, coverage 0.18) recall@5 is 0.811 and MRR 0.796, with 64 of 470 questions returning nothing; with the floor off, 0.977 and 0.914. The earlier floor (coverage 0.24) scored 0.591 and returned nothing on 176 questions, which is what led to the re-tuning in [ranking.md](ranking.md). By-type tables, configuration and caveats are in [bench/public/README.md](bench/public/README.md).
 
 ## Embedding latency
 
@@ -83,5 +81,5 @@ is what it measured itself, in the tables above.
 | What | How |
 | --- | --- |
 | Embedding latency | `lampl bench-embed --texts docs/bench/embed/texts-47.jsonl --prepare` |
-| LongMemEval smoke run | Steps in [bench/public/README.md](bench/public/README.md); CI runs it on pull requests that touch ranking, embedding, storage or the harness |
+| LongMemEval smoke run | Steps in [bench/public/README.md](bench/public/README.md); CI runs it nightly and on manual dispatch |
 | Stage A, Stage B, floor sweep | Run against private gold sets; the method is written out above and in [ranking.md](ranking.md) but the items are not published |
