@@ -59,12 +59,15 @@ Open, no details: `{"status": "alive"}`. Process liveness only; it proves nothin
   "memory_count": 0,
   "embedded_count": 0,
   "embed_failed_rows": 0,
+  "embed_failed": [],
+  "embed_retry_every_secs": 600,
+  "embed_next_retry_at": "2026-11-09T12:10:00Z",
   "vector_coverage": 1.0,
   "min_coverage": 0.95
 }
 ```
 
-`status` is `ok` only when `degraded` is false. `/health` probes the embedder itself (a recorded outcome younger than 500 ms is reused; a probe that hangs counts as failed after 5 s), so it cannot report a stale ok. `embed_failed_rows` counts rows the embedder rejected; they are skipped, retried every ten minutes, and keep the store degraded. `degraded` is true when the embedder probe failed (recall is then full-text only) or `vector_coverage` is below `min_coverage`. `vector_coverage` is rows embedded by the current model over all rows, and is `1.0` for an empty store, where `memory_count: 0` says so explicitly. `503` with `status: "unavailable"` when the database cannot be queried. Monitors need a key and should assert `degraded == false` and the coverage they expect, not just HTTP 200.
+`status` is `ok` only when `degraded` is false. `/health` probes the embedder itself (a recorded outcome younger than 500 ms is reused; a probe that hangs counts as failed after 5 s), so it cannot report a stale ok. `embed_failed_rows` counts rows the embedder rejected; they are skipped, retried every ten minutes, and keep the store degraded. `embed_failed` lists up to 50 of them in id order as `{"id", "error", "failed_at"}`: the memory id, the embedder's last error for that row (cut to 200 characters) and when it failed; memory text never appears. `embed_retry_every_secs` is that interval and `embed_next_retry_at` (UTC, RFC 3339) is when the worker next re-queues failed rows; it does so at the first idle sweep after that time. `POST /v1/embed/retry-failed` re-queues them at once. `degraded` is true when the embedder probe failed (recall is then full-text only) or `vector_coverage` is below `min_coverage`. `vector_coverage` is rows embedded by the current model over all rows, and is `1.0` for an empty store, where `memory_count: 0` says so explicitly. `503` with `status: "unavailable"` when the database cannot be queried. Monitors need a key and should assert `degraded == false` and the coverage they expect, not just HTTP 200.
 
 ### `POST /v1/memories`
 
@@ -95,6 +98,10 @@ Body: `query`, optional `project`, `limit` (1..=100, default 10), `embed_timeout
 
 Body: `from_id`, `to_id`, `link_type` (`SUPERSEDES`, `SOLVES`, `CAUSES`, `CONTRADICTS`), optional `strength` (0..1, default 1). `201` with the link; `400` for a self link or unknown type, `404` for an unknown memory.
 
+### `POST /v1/embed/retry-failed`
+
+No body. Puts every row in `embed_failed` back in the queue, so the next background sweep (within `--embed-interval-secs`) tries them again with no restart, and restarts the ten-minute retry clock. Returns `{"retried": <rows re-queued>, "next_retry_at": "<RFC 3339>"}`. Any valid key may call it: it only clears the skip list, and a row that still fails is listed again after that sweep. `lampl doctor --retry-failed` calls it. Added without an API version bump.
+
 ### `GET /v1/memories/{id}/related`
 
 `[{"direction": "outgoing"|"incoming", "link": {...}, "memory": {...}}]`, superseded memories included.
@@ -111,4 +118,4 @@ Body: the NDJSON produced by export (up to 256 MiB); header and end lines are ig
 
 ## Background embedding
 
-A tokio task claims rows with no vector, or a vector from a different model digest, in batches of 16: a short transaction marks them with a 5-minute lease (`FOR UPDATE SKIP LOCKED`), the embedder runs with no transaction open, and a second short transaction writes the vectors, so a crash leaves rows reclaimable once the lease lapses. It embeds them (if a batch fails while the embedder is otherwise healthy, rows are retried one by one and only the rejected rows are skipped) with the configured embedder and writes the vectors. It sweeps every `--embed-interval-secs`, replacing memorygraph's hourly reindex timer. While idle it probes the embedder every 60 s (every sweep while unhealthy) so `/health` tracks reality.
+A tokio task claims rows with no vector, or a vector from a different model digest, in batches of 16: a short transaction marks them with a 5-minute lease (`FOR UPDATE SKIP LOCKED`), the embedder runs with no transaction open, and a second short transaction writes the vectors, so a crash leaves rows reclaimable once the lease lapses. It embeds them (if a batch fails while the embedder is otherwise healthy, rows are retried one by one and only the rejected rows are skipped) with the configured embedder and writes the vectors. A row the embedder still rejects goes on an in-memory skip list with its error, shown in `/health`; the list is cleared every 10 minutes (at the first idle sweep after that), or at once by `POST /v1/embed/retry-failed`, and is empty after a restart. It sweeps every `--embed-interval-secs`, replacing memorygraph's hourly reindex timer. While idle it probes the embedder every 60 s (every sweep while unhealthy) so `/health` tracks reality.

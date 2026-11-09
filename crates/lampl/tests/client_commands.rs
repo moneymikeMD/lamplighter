@@ -27,6 +27,9 @@ impl Embedder for Fake {
         if self.down {
             return Err(EmbedError::Endpoint("fake embedder is down".to_owned()));
         }
+        if texts.iter().any(|t| t.contains("POISON")) {
+            return Err(EmbedError::Embed("rejects this text".to_owned()));
+        }
         Ok(texts
             .iter()
             .map(|t| {
@@ -337,6 +340,65 @@ fn pg_doctor_reports_the_store_and_fails_when_degraded() {
     let out = down.lampl(&["doctor"]);
     assert!(!out.status.success());
     assert!(err(&out).contains("embedder unavailable"), "{}", err(&out));
+}
+
+#[test]
+fn pg_doctor_names_failed_rows_and_retry_failed_requeues_them() {
+    let Some(l) = start(Fake {
+        digest: "sha256:a",
+        down: false,
+    }) else {
+        return;
+    };
+    populate(&l);
+    let bad = json(&l.ok(&[
+        "store",
+        "--title",
+        "bad",
+        "--body",
+        "POISON",
+        "--type",
+        "fact",
+        "--project",
+        "lab",
+    ]))["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    l.embed_all();
+
+    let out = l.lampl(&["doctor"]);
+    assert!(!out.status.success());
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    assert!(
+        text.contains("rows failing to embed: 1 (next retry due "),
+        "{text}"
+    );
+    assert!(
+        text.contains(&format!("{bad}: embedding failed: rejects this text")),
+        "{text}"
+    );
+
+    let out = l.lampl(&["doctor", "--json"]);
+    let report: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(report["health"]["embed_failed"][0]["id"], bad.as_str());
+
+    let out = l.lampl(&["doctor", "--retry-failed"]);
+    assert!(
+        err(&out).contains("queued 1 failed row(s)"),
+        "{}",
+        err(&out)
+    );
+    assert!(
+        !String::from_utf8_lossy(&out.stdout).contains("rows failing to embed"),
+        "the retry cleared the skip set before the report"
+    );
+    l.embed_all();
+    let report: Value = serde_json::from_slice(&l.lampl(&["doctor", "--json"]).stdout).unwrap();
+    assert_eq!(
+        report["health"]["embed_failed_rows"], 1,
+        "re-tried and rejected again"
+    );
 }
 
 #[test]

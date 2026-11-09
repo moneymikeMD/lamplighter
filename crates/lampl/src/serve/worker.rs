@@ -5,6 +5,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use chrono::{DateTime, Utc};
 use lampl_embed::EmbedError;
 use pgvector::HalfVector;
 use sqlx::Row;
@@ -17,7 +18,48 @@ const BATCH: i64 = 16;
 const LEASE: Duration = Duration::from_secs(300);
 const PROBE_EVERY: Duration = Duration::from_secs(60);
 const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
-const RETRY_FAILED_EVERY: Duration = Duration::from_secs(600);
+pub(crate) const RETRY_FAILED_EVERY: Duration = Duration::from_secs(600);
+/// Longest embedder error kept per failed row; `/health` must stay small and never echo memory text back.
+const MAX_ERROR_CHARS: usize = 200;
+
+/// Why a row was last skipped by the embedder, and when.
+#[derive(Debug, Clone)]
+pub(crate) struct FailedRow {
+    pub(crate) error: String,
+    pub(crate) failed_at: DateTime<Utc>,
+}
+
+fn capped(error: &str) -> String {
+    match error.char_indices().nth(MAX_ERROR_CHARS) {
+        Some((at, _)) => format!("{}…", &error[..at]),
+        None => error.to_owned(),
+    }
+}
+
+impl AppState {
+    /// When the worker next clears the failed set so those rows are tried again.
+    pub(crate) fn next_retry_at(&self) -> DateTime<Utc> {
+        let since = self
+            .last_retry
+            .lock()
+            .map_or(Duration::ZERO, |t| t.elapsed());
+        let left = RETRY_FAILED_EVERY.saturating_sub(since);
+        Utc::now() + chrono::Duration::from_std(left).unwrap_or_default()
+    }
+
+    /// Clears the failed set so the next sweep tries those rows again, and restarts the retry clock; returns how many rows were cleared.
+    pub(crate) fn retry_failed(&self) -> usize {
+        let n = self.failed.lock().map_or(0, |mut f| {
+            let n = f.len();
+            f.clear();
+            n
+        });
+        if let Ok(mut t) = self.last_retry.lock() {
+            *t = Instant::now();
+        }
+        n
+    }
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum WorkerError {
@@ -67,7 +109,7 @@ async fn embed_batch(state: &AppState) -> Result<Batch, WorkerError> {
     let skip: Vec<Uuid> = state
         .failed
         .lock()
-        .map(|f| f.iter().copied().collect())
+        .map(|f| f.keys().copied().collect())
         .unwrap_or_default();
     let rows = sqlx::query(
         "UPDATE memories SET embed_claimed_until = now() + make_interval(secs => $4) \
@@ -111,8 +153,8 @@ async fn embed_and_write(
     texts: Vec<String>,
 ) -> Result<Batch, WorkerError> {
     let whole = embed_texts(state, texts.clone()).await;
-    let results: Vec<Option<Vec<f32>>> = match whole {
-        Ok(v) if v.len() == ids.len() => v.into_iter().map(Some).collect(),
+    let results: Vec<Result<Vec<f32>, String>> = match whole {
+        Ok(v) if v.len() == ids.len() => v.into_iter().map(Ok).collect(),
         Ok(v) => {
             return Err(EmbedError::Embed(format!(
                 "embedder returned {} vectors for {} inputs",
@@ -128,12 +170,12 @@ async fn embed_and_write(
             }
             let mut out = Vec::with_capacity(texts.len());
             for t in texts {
-                out.push(
-                    embed_texts(state, vec![t])
-                        .await
-                        .ok()
-                        .and_then(|mut v| v.pop()),
-                );
+                out.push(match embed_texts(state, vec![t]).await {
+                    Ok(mut v) => v
+                        .pop()
+                        .ok_or_else(|| "embedder returned no vector".to_owned()),
+                    Err(e) => Err(e.to_string()),
+                });
             }
             out
         }
@@ -144,20 +186,38 @@ async fn embed_and_write(
     };
     let mut tx = state.store.pool().begin().await?;
     for (id, vector) in ids.iter().zip(&results) {
-        let Some(vector) = vector
-            .as_ref()
-            .filter(|v| v.len() == lampl_core::EMBEDDING_DIM)
-        else {
-            tracing::warn!(%id, "row could not be embedded; skipping it");
-            if let Ok(mut f) = state.failed.lock() {
-                f.insert(*id);
+        let vector = vector.as_ref().map_err(String::clone).and_then(|v| {
+            if v.len() == lampl_core::EMBEDDING_DIM {
+                Ok(v)
+            } else {
+                Err(format!(
+                    "embedder returned {} dimensions, expected {}",
+                    v.len(),
+                    lampl_core::EMBEDDING_DIM
+                ))
             }
-            sqlx::query("UPDATE memories SET embed_claimed_until = NULL WHERE id = $1")
-                .bind(id)
-                .execute(&mut *tx)
-                .await?;
-            batch.failed += 1;
-            continue;
+        });
+        let vector = match vector {
+            Ok(v) => v,
+            Err(error) => {
+                let error = capped(&error);
+                tracing::warn!(%id, %error, "row could not be embedded; skipping it");
+                if let Ok(mut f) = state.failed.lock() {
+                    f.insert(
+                        *id,
+                        FailedRow {
+                            error,
+                            failed_at: Utc::now(),
+                        },
+                    );
+                }
+                sqlx::query("UPDATE memories SET embed_claimed_until = NULL WHERE id = $1")
+                    .bind(id)
+                    .execute(&mut *tx)
+                    .await?;
+                batch.failed += 1;
+                continue;
+            }
         };
         sqlx::query(
             "UPDATE memories SET embedding = $2, embedding_model = $3, embedding_digest = $4, embed_claimed_until = NULL WHERE id = $1",
@@ -196,7 +256,6 @@ pub async fn probe_bounded(state: &AppState) {
 
 pub(crate) async fn run(state: Arc<AppState>, interval: Duration) {
     let mut last_probe = Instant::now();
-    let mut last_retry = Instant::now();
     loop {
         match embed_batch(&state).await {
             Ok(b) if b.embedded + b.failed > 0 => {
@@ -204,11 +263,12 @@ pub(crate) async fn run(state: Arc<AppState>, interval: Duration) {
                 continue;
             }
             Ok(_) => {
-                if last_retry.elapsed() >= RETRY_FAILED_EVERY {
-                    if let Ok(mut f) = state.failed.lock() {
-                        f.clear();
-                    }
-                    last_retry = Instant::now();
+                let due = state
+                    .last_retry
+                    .lock()
+                    .is_ok_and(|t| t.elapsed() >= RETRY_FAILED_EVERY);
+                if due {
+                    state.retry_failed();
                 }
                 if !state.embed_status.is_ok() || last_probe.elapsed() >= PROBE_EVERY {
                     probe(&state).await;

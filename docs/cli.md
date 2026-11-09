@@ -21,7 +21,7 @@ The `lampl` client talks to `lampl serve` and fails closed: an unreachable serve
 | `get ID` / `related ID` | Read a memory, or its links in both directions |
 | `link FROM TO TYPE [--strength 1.0]` | `SUPERSEDES`, `SOLVES`, `CAUSES`, `CONTRADICTS` |
 | `delete ID` | Permanently remove a memory and every link to or from it; prints `{"id", "links_removed"}`. Unknown id: non-zero exit, `not found`. See below |
-| `doctor [--json] [--fetch-model]` | Server URL, store host, schema version, memory count, embed mode, vector coverage, degraded flag; exits non-zero on any problem. `--fetch-model` is the only place the embedding model is downloaded |
+| `doctor [--json] [--fetch-model] [--retry-failed]` | Server URL, store host, schema version, memory count, embed mode, vector coverage, degraded flag, and any rows that fail to embed with their last error and the next retry time; exits non-zero on any problem. `--fetch-model` is the only place the embedding model is downloaded. `--retry-failed` asks the server to retry failed rows on its next sweep instead of waiting up to 10 minutes |
 | `audit [--json] [--stale-days 365] [--project P]` | Read-only: duplicate titles and bodies, stale and untagged memories; superseded memories are excluded |
 | `export [-o FILE] [--project P] [--no-vectors]` | NDJSON: a header (format, API version, embedding model id and digest), every memory with its vector, every link, then an end marker with counts. Nothing is written if the stream breaks |
 | `import FILE` / `import --from-postgres [URL]` | See below |

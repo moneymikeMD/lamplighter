@@ -15,6 +15,8 @@ use super::{API_VERSION, AppState};
 
 /// How long a recorded embedder outcome may stand in for a live probe when `/health` is asked.
 const HEALTH_TTL: Duration = Duration::from_millis(500);
+/// Most failed rows `/health` lists by id; `embed_failed_rows` still counts them all.
+const MAX_FAILED_LISTED: usize = 50;
 
 /// Outcome of the most recent embedder call, so `/health` reports what the embedder actually did rather than what was configured.
 #[derive(Debug)]
@@ -100,7 +102,7 @@ pub(crate) async fn health(State(state): State<Arc<AppState>>) -> Response {
     if coverage < state.min_coverage {
         reasons.push("vector coverage below threshold");
     }
-    let failed_rows = state.failed_rows();
+    let (failed_rows, failed_list) = failed_listing(&state);
     if failed_rows > 0 {
         reasons.push("some rows fail to embed");
     }
@@ -124,8 +126,43 @@ pub(crate) async fn health(State(state): State<Arc<AppState>>) -> Response {
         "memory_count": total,
         "embedded_count": embedded,
         "embed_failed_rows": failed_rows,
+        "embed_failed": failed_list,
+        "embed_retry_every_secs": super::worker::RETRY_FAILED_EVERY.as_secs(),
+        "embed_next_retry_at": state.next_retry_at().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
         "vector_coverage": coverage,
         "min_coverage": state.min_coverage,
+    }))
+    .into_response()
+}
+
+/// The failed-row count and the first rows by id with their last embedder error; ids and errors only, never memory text.
+fn failed_listing(state: &AppState) -> (usize, Vec<serde_json::Value>) {
+    let Ok(failed) = state.failed.lock() else {
+        return (0, Vec::new());
+    };
+    let mut rows: Vec<_> = failed.iter().collect();
+    rows.sort_by_key(|(id, _)| **id);
+    let listed = rows
+        .into_iter()
+        .take(MAX_FAILED_LISTED)
+        .map(|(id, f)| {
+            json!({
+                "id": id,
+                "error": f.error,
+                "failed_at": f.failed_at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+            })
+        })
+        .collect();
+    (failed.len(), listed)
+}
+
+/// `POST /v1/embed/retry-failed`: puts every failed row back in the queue for the next sweep instead of waiting for the retry interval.
+pub(crate) async fn retry_failed(State(state): State<Arc<AppState>>) -> Response {
+    let retried = state.retry_failed();
+    tracing::info!(retried, "failed rows queued for retry on request");
+    Json(json!({
+        "retried": retried,
+        "next_retry_at": state.next_retry_at().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
     }))
     .into_response()
 }

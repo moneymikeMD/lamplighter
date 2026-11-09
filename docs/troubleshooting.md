@@ -17,6 +17,7 @@ problem.
 | `keys file ... is readable by group or others (mode 644); run chmod 600` | Permissions too open | `chmod 600` the file |
 | `database schema version N is newer than this build understands` | An older binary against a newer database | Upgrade `lampl` |
 | `/health` says `degraded`, `embedder unavailable` | Model weights missing or the endpoint is down; recall is full-text only | `lampl doctor --fetch-model` on the server host, then restart `lampl serve`; check `--embed-endpoint` |
+| `doctor` says `some rows fail to embed` | The embedder rejected those rows; they are skipped and retried every 10 minutes | `lampl doctor` lists each row id with the embedder's last error and when the next retry is due (`--json` for up to 50). Fix the cause (for example the endpoint's input limit), then `lampl doctor --retry-failed` re-queues them for the next sweep without restarting `lampl serve` |
 | `/health` says degraded for vector coverage | Fewer than 95% of memories have vectors, for example right after a large import | Wait for the background worker; lower `--min-coverage` only if you accept it |
 | Recall prints nothing | Nothing cleared the floor (cosine 0.52 or `capped:3` coverage 0.52) | Rephrase as a question about the decision; try `--json`; confirm the memory exists with `get`; very small stores give weak IDF coverage |
 | A memory I stored is missing from vector results | Not embedded yet (server mode embeds in the background) | It is found by full text at once; wait a few seconds |

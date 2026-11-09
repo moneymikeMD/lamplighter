@@ -60,7 +60,8 @@ pub struct AppState {
     pub(crate) keys: KeyStore,
     pub(crate) embed_status: EmbedStatus,
     pub(crate) min_coverage: f64,
-    pub(crate) failed: std::sync::Mutex<std::collections::HashSet<uuid::Uuid>>,
+    pub(crate) failed: std::sync::Mutex<std::collections::HashMap<uuid::Uuid, worker::FailedRow>>,
+    pub(crate) last_retry: std::sync::Mutex<std::time::Instant>,
 }
 
 impl std::fmt::Debug for AppState {
@@ -88,11 +89,8 @@ impl AppState {
             embed_status: EmbedStatus::new(),
             min_coverage,
             failed: std::sync::Mutex::default(),
+            last_retry: std::sync::Mutex::new(std::time::Instant::now()),
         })
-    }
-
-    pub(crate) fn failed_rows(&self) -> usize {
-        self.failed.lock().map_or(0, |f| f.len())
     }
 }
 
@@ -122,6 +120,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/memories/{id}/related", get(related))
         .route("/recall", post(recall))
         .route("/links", post(create_link))
+        .route("/embed/retry-failed", post(health::retry_failed))
         .route("/export", get(export))
         .route(
             "/import",
