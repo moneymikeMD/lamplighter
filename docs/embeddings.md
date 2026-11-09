@@ -10,7 +10,8 @@ prefix. There is no Ollama, no API key and no GPU requirement.
 
 - **Weights:** about 1.1 GB, never bundled and never downloaded implicitly. `lampl init --local --prepare` or `lampl doctor --fetch-model` fetches them from Hugging Face into the platform cache
   directory under `lamplighter/models`.
-- **Input:** title, a blank line, then body, truncated at 512 tokens; a long memory is represented by its start. Local mode and the server build this input with the same function, and the in-database extension (`crates/lampl-pg-ext`) builds the same text in SQL.
+- **Input:** title, a blank line, then body, truncated at 512 tokens; a long memory is represented by its start. Local mode and the server build this input with the same function, and the in-database
+  extension (`crates/lampl-pg-ext`) builds the same text in SQL.
 - **Who embeds:** in embedded mode the `lampl` client process; in server mode `lampl serve` (queries as they arrive, memories in a background sweep every `--embed-interval-secs`, default 5).
 - **Memory:** about 2.5 GiB resident for a server with the model loaded, measured in a container.
 
@@ -32,8 +33,12 @@ lampl bench-embed --texts docs/bench/embed/texts-47.jsonl --prepare
 For a GPU host or a shared embedder, `lampl serve` can call an endpoint instead of loading the model:
 
 ```sh
-lampl serve --embed-endpoint http://embedder.internal:11434 --embed-endpoint-kind ollama --embed-model qwen3-embedding:0.6b
+lampl serve --embed-endpoint http://embedder.internal:11434 --embed-endpoint-kind ollama --embed-model qwen3-embedding:0.6b --fetch-tokenizer
 ```
+
+Always pass `--fetch-tokenizer` in endpoint mode. It downloads the Qwen3 tokenizer (about 11 MB, once, into the model cache) so input is cut at exactly the 512 tokens the relevance floor was
+calibrated on. Without it lamplighter falls back to a 1,500-character cut, which is approximate (see [Input truncation](#input-truncation)). `lampl doctor` shows `embed input cut: tokens:512` when it
+is enabled.
 
 | Flag | Meaning |
 | --- | --- |
