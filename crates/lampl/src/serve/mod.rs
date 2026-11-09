@@ -307,6 +307,7 @@ fn serve(args: Args) -> Result<(), String> {
         .clone()
         .or_else(|| std::env::var("LAMPL_DATABASE_URL").ok())
         .ok_or("no database URL: set LAMPL_DATABASE_URL or pass --database-url")?;
+    lampl_store_pg::check_database_url(&database_url)?;
     let keys_path = args
         .keys_file
         .clone()

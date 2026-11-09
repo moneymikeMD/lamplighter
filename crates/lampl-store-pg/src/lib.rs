@@ -10,7 +10,7 @@ use lampl_core::{
     idf, passes_floor, relevance, rrf_fuse,
 };
 use pgvector::HalfVector;
-use sqlx::postgres::{PgPool, PgPoolOptions, PgRow};
+use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions, PgRow};
 use sqlx::{AssertSqlSafe, Row};
 use uuid::Uuid;
 
@@ -106,6 +106,22 @@ fn check_dim(vector: &[f32]) -> Result<(), StoreError> {
     } else {
         Err(StoreError::BadDimension { got: vector.len() })
     }
+}
+
+/// Refuses a database URL whose role is empty or `anonymous`, and never echoes the URL.
+/// sqlx's `whoami` runs without its `std` feature, so a URL naming no user and no `PGUSER` yields `anonymous` on every platform.
+pub fn check_database_url(url: &str) -> Result<(), String> {
+    const HINT: &str = "for a local socket use postgresql://<user>@%2Ftmp/lampl (Homebrew) or postgresql://<user>@%2Fvar%2Frun%2Fpostgresql/lampl (Debian, Ubuntu)";
+    let options: PgConnectOptions = url
+        .parse()
+        .map_err(|e: sqlx::Error| format!("invalid database URL: {e}; {HINT}"))?;
+    let user = options.get_username();
+    if user.is_empty() || user == "anonymous" {
+        return Err(format!(
+            "database URL names no usable user (resolved to {user:?}); name the role in the URL; {HINT}"
+        ));
+    }
+    Ok(())
 }
 
 impl PgStore {
@@ -428,5 +444,48 @@ impl PgStore {
             out.insert(id, (plain, floor));
         }
         Ok(out)
+    }
+}
+
+#[cfg(test)]
+mod url_tests {
+    use super::check_database_url;
+
+    #[test]
+    fn refuses_a_url_with_no_user() {
+        let err = check_database_url("postgresql:///lampl?host=/tmp").unwrap_err();
+        assert!(err.contains("postgresql://<user>@%2Ftmp/lampl"), "{err}");
+    }
+
+    #[test]
+    fn refuses_an_explicit_anonymous_user() {
+        assert!(check_database_url("postgresql://anonymous@%2Ftmp/lampl").is_err());
+    }
+
+    #[test]
+    fn refuses_an_unparsable_url_with_the_socket_hint() {
+        let err = check_database_url("postgresql://mike@/lampl?host=/tmp").unwrap_err();
+        assert!(
+            err.contains("empty host") && err.contains("%2Ftmp"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn accepts_socket_and_tcp_urls_with_a_user() {
+        assert!(check_database_url("postgresql://mike@%2Ftmp/lampl").is_ok());
+        assert!(check_database_url("postgres://u:p@127.0.0.1:5432/lampl").is_ok());
+    }
+
+    #[test]
+    fn never_prints_the_password() {
+        for url in [
+            "postgres://:s3cret@/lampl",
+            "postgres://anonymous:s3cret@%2Ftmp/lampl",
+            "postgres://u:s3cret@/lampl",
+        ] {
+            let err = check_database_url(url).unwrap_err();
+            assert!(!err.contains("s3cret"), "{err}");
+        }
     }
 }
