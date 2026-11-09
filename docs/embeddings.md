@@ -10,7 +10,7 @@ prefix. There is no Ollama, no API key and no GPU requirement.
 
 - **Weights:** about 1.1 GB, never bundled and never downloaded implicitly. `lampl init --local --prepare` or `lampl doctor --fetch-model` fetches them from Hugging Face into the platform cache
   directory under `lamplighter/models`.
-- **Input:** title, a blank line, then body, truncated at 512 tokens; a long memory is represented by its start.
+- **Input:** title, a blank line, then body, truncated at 512 tokens; a long memory is represented by its start. Local mode and the server build this input with the same function, and the in-database extension (`crates/lampl-pg-ext`) builds the same text in SQL.
 - **Who embeds:** in embedded mode the `lampl` client process; in server mode `lampl serve` (queries as they arrive, memories in a background sweep every `--embed-interval-secs`, default 5).
 - **Memory:** about 2.5 GiB resident for a server with the model loaded, measured in a container.
 

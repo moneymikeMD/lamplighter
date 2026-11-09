@@ -136,7 +136,7 @@ async fn embed_batch(state: &AppState) -> Result<Batch, WorkerError> {
     for row in &rows {
         ids.push(row.try_get("id")?);
         let (title, body): (String, String) = (row.try_get("title")?, row.try_get("body")?);
-        texts.push(format!("{title}\n\n{body}"));
+        texts.push(lampl_core::memory_embed_text(&title, &body));
     }
     match embed_and_write(state, &ids, texts).await {
         Ok(batch) => Ok(batch),

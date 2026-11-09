@@ -69,6 +69,29 @@ impl Embedder for FakeEmbedder {
     }
 }
 
+#[derive(Debug, Default)]
+struct RecordingEmbedder {
+    seen: std::sync::Mutex<Vec<String>>,
+}
+
+impl Embedder for RecordingEmbedder {
+    fn embed(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>, EmbedError> {
+        if let Ok(mut seen) = self.seen.lock() {
+            seen.extend(texts.iter().map(|t| (*t).to_owned()));
+        }
+        Ok(texts.iter().map(|_| vec![1.0; lampl_embed::DIM]).collect())
+    }
+    fn dim(&self) -> usize {
+        lampl_embed::DIM
+    }
+    fn model_id(&self) -> &str {
+        "recording"
+    }
+    fn model_digest(&self) -> &str {
+        "sha256:recording"
+    }
+}
+
 struct TestDb {
     admin_url: String,
     url: String,
@@ -1134,5 +1157,35 @@ async fn pg_delete_removes_memory_and_links_logs_id_and_client_not_text_and_is_4
         "{line}"
     );
     assert!(!text.contains("hunter2"), "deleted text reached the log");
+    db.drop_db().await;
+}
+
+#[tokio::test]
+async fn pg_the_worker_embeds_title_a_blank_line_then_body() {
+    let Some(db) = TestDb::create().await else {
+        return;
+    };
+    let embedder = Arc::new(RecordingEmbedder::default());
+    let h = harness(&db, Arc::clone(&embedder) as SharedEmbedder).await;
+    let k = Some(h.key.as_str());
+    let r = call(
+        &h.app,
+        Method::POST,
+        "/v1/memories",
+        k,
+        Some(memory("Deploy notes", "restarted twice")),
+    )
+    .await;
+    assert_eq!(r.status, StatusCode::CREATED);
+    assert_eq!(embed_pending(&h.state).await.unwrap(), 1);
+    let seen = embedder.seen.lock().unwrap().clone();
+    assert!(
+        seen.iter().any(|t| t == "Deploy notes\n\nrestarted twice"),
+        "{seen:?}"
+    );
+    assert_eq!(
+        lampl_core::memory_embed_text("Deploy notes", "restarted twice"),
+        "Deploy notes\n\nrestarted twice"
+    );
     db.drop_db().await;
 }
