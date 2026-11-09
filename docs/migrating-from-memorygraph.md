@@ -22,7 +22,19 @@ The table is data: `crates/lampl/src/import/mapping.toml`. Each imported memory 
 
 ## Links
 
-`SOLVES`, `CAUSES` and `CONTRADICTS` carry over with their strength and creation time. `CONTRADICTS` is never converted to `SUPERSEDES`; supersession starts with new memories. `RELATED_TO`, `SIMILAR_TO` and `BLOCKS` have no lean equivalent: they are dropped and the counts are printed on stderr. Links whose endpoint is missing from the export, and self links, are dropped the same way.
+Links carry over with their strength and creation time and keep their direction. The table is the `[links]` section of the same `mapping.toml`; a row maps to a lean link type (not necessarily its own name) or to `dropped`.
+
+| memorygraph | lamplighter |
+| --- | --- |
+| `SOLVES`, `ADDRESSES` | `SOLVES` (solution to problem) |
+| `CAUSES` | `CAUSES` |
+| `CONTRADICTS` | `CONTRADICTS` |
+| `REPLACES` | `SUPERSEDES` |
+| `RELATED_TO`, `SIMILAR_TO`, `BLOCKS`, `BUILDS_ON`, `DEPENDS_ON`, `FOLLOWS` | dropped |
+
+memorygraph writes `REPLACES` as `link NEW OLD REPLACES`, and lamplighter reads `SUPERSEDES` as `from` replaces `to`, so endpoints are not swapped. The old memory then stops appearing in recall. `CONTRADICTS` is never converted to `SUPERSEDES`.
+
+Dropped links are counted on stderr (`links dropped: BUILDS_ON: 4`), in `--dry-run` as well. A link type that is not in the table at all is dropped and counted under its own name (`links dropped: unmapped type NEW_TYPE: 2`) rather than failing the import, so a type added by a later memorygraph release shows up in the report; add a row to `mapping.toml` to carry it over. Links whose endpoint is missing from the export, and self links, are dropped the same way.
 
 ## Ids and fields
 
@@ -34,4 +46,4 @@ UUID ids are kept. A non-UUID id becomes a stable UUIDv5 of the original, so rer
 
 ## Known limits
 
-The JSON export and the database read are not snapshots of a quiet store; stop writers first. `RELATED_TO`, `SIMILAR_TO` and `BLOCKS` links are dropped (32 of 346 in the 2026-09-28 export) and counted on stderr.
+The JSON export and the database read are not snapshots of a quiet store; stop writers first. Links with no lean equivalent are dropped (32 of 346 in the 2026-09-28 export) and counted on stderr.

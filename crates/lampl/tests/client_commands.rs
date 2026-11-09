@@ -546,6 +546,46 @@ fn pg_memorygraph_export_imports_idempotently_keeping_contradicts() {
 }
 
 #[test]
+fn pg_memorygraph_013_link_types_import_and_unmapped_types_are_reported() {
+    let Some(l) = start(Fake {
+        digest: "sha256:a",
+        down: false,
+    }) else {
+        return;
+    };
+    let (newer, older) = (Uuid::now_v7(), Uuid::now_v7());
+    let rel = |t: &str, from: Uuid, to: Uuid| serde_json::json!({"from_memory_id": from, "to_memory_id": to, "type": t, "properties": {}});
+    let mem = |id: Uuid, title: &str| serde_json::json!({"id": id, "type": "solution", "title": title, "content": "body", "created_at": "2026-09-12T17:24:44.550Z"});
+    let doc = serde_json::json!({
+        "memories": [mem(newer, "new approach"), mem(older, "old approach")],
+        "relationships": [
+            rel("REPLACES", newer, older),
+            rel("ADDRESSES", newer, older),
+            rel("BUILDS_ON", newer, older),
+            rel("DEPENDS_ON", newer, older),
+            rel("FOLLOWS", newer, older),
+            rel("INVENTED_LATER", newer, older),
+            rel("INVENTED_LATER", older, newer)
+        ]
+    });
+    let file = l.cfg.path().join("mg013.json");
+    std::fs::write(&file, doc.to_string()).unwrap();
+    let path = file.to_str().unwrap();
+    let dry = l.lampl(&["import", path, "--dry-run"]);
+    assert!(dry.status.success(), "{}", err(&dry));
+    let report = err(&dry);
+    assert!(report.contains("links dropped: BUILDS_ON: 1"), "{report}");
+    assert!(
+        report.contains("links dropped: unmapped type INVENTED_LATER: 2"),
+        "{report}"
+    );
+    let out: Value = serde_json::from_str(&l.ok(&["import", path])).unwrap();
+    assert_eq!(out["links_imported"], 2);
+    let related = l.ok(&["related", &older.to_string()]);
+    assert!(related.contains("SUPERSEDES") && related.contains("SOLVES"));
+}
+
+#[test]
 fn pg_a_truncated_export_file_is_refused() {
     let Some(l) = start(Fake {
         digest: "sha256:a",
