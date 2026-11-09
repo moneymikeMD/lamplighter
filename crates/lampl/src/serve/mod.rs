@@ -20,7 +20,8 @@ use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use lampl_embed::{
-    EmbedError, Embedder, EndpointEmbedder, EndpointKind, LocalConfig, LocalEmbedder,
+    EmbedError, Embedder, EndpointEmbedder, EndpointKind, LocalConfig, LocalEmbedder, Truncator,
+    prepare_tokenizer,
 };
 use lampl_store_pg::PgStore;
 
@@ -186,6 +187,9 @@ pub struct Args {
     /// Model name sent to the endpoint
     #[arg(long, default_value = lampl_embed::DEFAULT_REPO_ID)]
     embed_model: String,
+    /// With --embed-endpoint: download the model's tokenizer.json (about 11 MB) if it is not cached, so input is cut at exactly 512 tokens
+    #[arg(long, requires = "embed_endpoint")]
+    fetch_tokenizer: bool,
     /// /health reports degraded below this vector coverage (0..=1)
     #[arg(long, default_value_t = 0.95)]
     min_coverage: f64,
@@ -261,6 +265,11 @@ fn build_embedder(args: &Args) -> Result<(SharedEmbedder, EmbedMode), String> {
         };
         let key = std::env::var("LAMPL_EMBED_API_KEY").ok();
         let e = EndpointEmbedder::new(kind, url, &args.embed_model, key);
+        let e = match endpoint_truncator(args.fetch_tokenizer)? {
+            Some(t) => e.with_truncator(t),
+            None => e,
+        };
+        tracing::info!(truncation = %e.truncator().describe(), "endpoint embedder input truncation");
         return Ok((Arc::new(e), EmbedMode::Endpoint));
     }
     let embedder: SharedEmbedder = match LocalEmbedder::load(&LocalConfig::default()) {
@@ -273,6 +282,28 @@ fn build_embedder(args: &Args) -> Result<(SharedEmbedder, EmbedMode), String> {
         }
     };
     Ok((embedder, EmbedMode::InProcess))
+}
+
+/// The cached Qwen3 tokenizer, fetched first when `fetch` is set; `None` (with a warning) leaves the character cap in place.
+fn endpoint_truncator(fetch: bool) -> Result<Option<Truncator>, String> {
+    let cfg = LocalConfig::default();
+    if fetch {
+        prepare_tokenizer(&cfg).map_err(|e| format!("--fetch-tokenizer: {e}"))?;
+    }
+    match Truncator::cached(&cfg) {
+        Some(Ok(t)) => Ok(Some(t)),
+        Some(Err(e)) => {
+            tracing::warn!(error = %e, "cached tokenizer unreadable; truncating endpoint input by characters");
+            Ok(None)
+        }
+        None => {
+            tracing::warn!(
+                cache = %cfg.cache_dir.display(),
+                "tokenizer not cached; truncating endpoint input by characters (run once with --fetch-tokenizer for exact 512-token truncation)"
+            );
+            Ok(None)
+        }
+    }
 }
 
 pub fn run(cmd: Cmd) -> Result<(), String> {

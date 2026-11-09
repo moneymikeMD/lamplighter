@@ -27,7 +27,7 @@ The file holds `<client> <sha256-hex>` lines (`#` comments allowed, created owne
 | `--database-url` | `LAMPL_DATABASE_URL` | required |
 | `--keys-file` | `LAMPL_KEYS_FILE` | required |
 | `--listen` | | `127.0.0.1:7878` |
-| `--embed-endpoint`, `--embed-endpoint-kind openai\|ollama`, `--embed-model` | `LAMPL_EMBED_API_KEY` (endpoint bearer) | in-process Qwen3-Embedding-0.6B |
+| `--embed-endpoint`, `--embed-endpoint-kind openai\|ollama`, `--embed-model`, `--fetch-tokenizer` | `LAMPL_EMBED_API_KEY` (endpoint bearer) | in-process Qwen3-Embedding-0.6B |
 | `--min-coverage` | | `0.95` |
 | `--embed-interval-secs` | | `5` |
 

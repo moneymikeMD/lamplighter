@@ -8,7 +8,8 @@ use std::time::Instant;
 
 use clap::Args as ClapArgs;
 use lampl_embed::{
-    Embedder, EndpointEmbedder, EndpointKind, LocalConfig, LocalEmbedder, cosine, prepare,
+    Embedder, EndpointEmbedder, EndpointKind, LocalConfig, LocalEmbedder, Truncator, cosine,
+    prepare,
 };
 
 #[derive(ClapArgs)]
@@ -97,7 +98,11 @@ pub(crate) fn run(args: Args) -> Result<(), String> {
     match &args.ollama_url {
         None => println!("ollama_cosine: skipped (no --ollama-url)"),
         Some(url) => {
-            let ollama = EndpointEmbedder::new(EndpointKind::Ollama, url, &args.ollama_model, None);
+            let mut ollama =
+                EndpointEmbedder::new(EndpointKind::Ollama, url, &args.ollama_model, None);
+            if let Some(t) = Truncator::cached(&cfg) {
+                ollama = ollama.with_truncator(t.map_err(|e| e.to_string())?);
+            }
             match ollama.embed(&texts) {
                 Err(e) => println!("ollama_cosine: unavailable ({e})"),
                 Ok(theirs) => {
