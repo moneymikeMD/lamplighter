@@ -20,12 +20,23 @@ The `lampl` client talks to `lampl serve` and fails closed: an unreachable serve
 | `recall QUERY` or `recall --query QUERY [--project P] [--limit N] [--json] [--embed-timeout-ms MS]` | One JSON hit per line; warns on stderr when the server could only do full-text. `--json` prints a single `{"hits": [...], "warning": null}` object instead, so an empty recall is `{"hits": []}` rather than no output. `--embed-timeout-ms` (or `LAMPL_EMBED_TIMEOUT_MS`) abandons embedding the query after that long and recalls by full text with a warning |
 | `get ID` / `related ID` | Read a memory, or its links in both directions |
 | `link FROM TO TYPE [--strength 1.0]` | `SUPERSEDES`, `SOLVES`, `CAUSES`, `CONTRADICTS` |
+| `delete ID` | Permanently remove a memory and every link to or from it; prints `{"id", "links_removed"}`. Unknown id: non-zero exit, `not found`. See below |
 | `doctor [--json] [--fetch-model]` | Server URL, store host, schema version, memory count, embed mode, vector coverage, degraded flag; exits non-zero on any problem. `--fetch-model` is the only place the embedding model is downloaded |
 | `audit [--json] [--stale-days 365] [--project P]` | Read-only: duplicate titles and bodies, stale and untagged memories; superseded memories are excluded |
 | `export [-o FILE] [--project P] [--no-vectors]` | NDJSON: a header (format, API version, embedding model id and digest), every memory with its vector, every link, then an end marker with counts. Nothing is written if the stream breaks |
 | `import FILE` / `import --from-postgres [URL]` | See below |
 
-Memory and link types are validated client-side and the valid set is printed on error. In local mode only `store` and `recall` exist; the others say so and exit non-zero.
+Memory and link types are validated client-side and the valid set is printed on error. In local mode only `store`, `recall` and `delete` exist; the others say so and exit non-zero.
+
+## Delete
+
+`lampl delete ID` is for a memory that should never have been stored: a test row, an import duplicate, a leaked secret. It works in server mode (`DELETE /v1/memories/{id}`, see `api.md`)
+and in local mode. The memory, its vector and full-text entry, and every link to or from it are removed in one transaction; the memories at the other end of those links stay. There is no
+confirmation prompt and no undo, so `lampl export` first if in doubt. A second delete of the same id exits non-zero with `not found`.
+
+The server logs each deletion with the id and the calling key's name, never the text. Local mode has no server log; the command's output is the only record.
+
+To retire a memory that was true once and is now stale, do not delete it: `lampl link NEW OLD SUPERSEDES` keeps the old one reachable by id and drops it from recall and audit.
 
 ## Import
 

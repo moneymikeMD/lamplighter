@@ -340,3 +340,78 @@ fn default_floor_tests_capped_three_coverage_at_0_52() {
         ["common one", "common two", "rare"]
     );
 }
+
+#[test]
+fn delete_removes_the_memory_its_index_rows_and_its_links_but_not_its_neighbours() {
+    let mut s = store();
+    let p = project();
+    let doomed = s
+        .store(new(
+            &p,
+            "leaked token",
+            "hunter2 secret value",
+            Some(axis(3)),
+        ))
+        .unwrap();
+    let kept = s
+        .store(new(
+            &p,
+            "rotate token",
+            "rotate the leaked value",
+            Some(axis(4)),
+        ))
+        .unwrap();
+    s.link(kept.id, doomed.id, LinkType::Solves, 1.0).unwrap();
+    s.link(doomed.id, kept.id, LinkType::Causes, 1.0).unwrap();
+
+    assert_eq!(s.delete(doomed.id).unwrap(), Some(2));
+    assert!(s.get(doomed.id).unwrap().is_none());
+    assert!(s.get(kept.id).unwrap().is_some());
+    assert!(s.related(kept.id).unwrap().is_empty());
+
+    let mut q = RecallQuery::new("hunter2 secret");
+    q.project = Some(p.clone());
+    q.embedding = Some(axis(3));
+    q.floor = Floor {
+        cosine: f64::NEG_INFINITY,
+        coverage: 0.0,
+        ..Floor::default()
+    };
+    let titles: Vec<String> = s
+        .recall(&q)
+        .unwrap()
+        .into_iter()
+        .map(|h| h.memory.title)
+        .collect();
+    assert!(!titles.contains(&"leaked token".to_owned()), "{titles:?}");
+
+    assert_eq!(s.delete(doomed.id).unwrap(), None);
+    assert_eq!(s.delete(Uuid::now_v7()).unwrap(), None);
+}
+
+#[test]
+fn delete_leaves_no_full_text_or_vector_row_behind() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("m.db");
+    let mut s = SqliteStore::open(&path).unwrap();
+    let id = s
+        .store(new("p", "test row", "stored by mistake", Some(axis(5))))
+        .unwrap()
+        .id;
+    let count = |table: &str| -> i64 {
+        rusqlite::Connection::open(&path)
+            .unwrap()
+            .query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0))
+            .unwrap()
+    };
+    assert_eq!((count("memories_fts"), count("memories_vec")), (1, 1));
+    assert_eq!(s.delete(id).unwrap(), Some(0));
+    assert_eq!(
+        (
+            count("memories"),
+            count("memories_fts"),
+            count("memories_vec")
+        ),
+        (0, 0, 0)
+    );
+}

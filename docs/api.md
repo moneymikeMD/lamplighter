@@ -74,6 +74,15 @@ Body: `memory_type` (`fact`, `decision`, `problem`, `fix`, `procedure`, `gotcha`
 
 The memory, including superseded ones. `404` if unknown.
 
+### `DELETE /v1/memories/{id}`
+
+Permanently removes the memory, its vector and every link to or from it, in one transaction, and answers `200` with `{"id": "<id>", "links_removed": <n>}`. The memories at the other end of
+those links are kept; only the links go. `404` if the id is unknown, so deleting the same id twice reports not found the second time. There is no undo: export first if you may want it back.
+
+Each deletion writes one `info` line to the server log, `memory deleted` with the `id`, the `client` (the key's name in the keys file) and `links_removed`; the title and body are never logged,
+so deleting a leaked secret does not copy it into the log. Delete is for mistakes: a test row, an import duplicate, a secret. To retire a memory that was once true, link its replacement to it
+with `SUPERSEDES` instead, which keeps it reachable by id and out of recall. Delete is not an MCP tool, so an agent cannot remove memories through the plugin.
+
 ### `GET /v1/memories?project=&limit=&after=`
 
 Memories in id order (id is time-ordered), all of them including superseded. `limit` 1..=1000 (default 50). Returns `{"memories": [...], "next_after": "<id>"|null`}; pass `next_after` as `after` for the next page.

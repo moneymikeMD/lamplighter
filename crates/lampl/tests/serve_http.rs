@@ -949,3 +949,114 @@ async fn pg_vector_recall_ignores_rows_embedded_by_another_model_digest() {
     );
     db.drop_db().await;
 }
+
+#[derive(Clone, Default)]
+struct Captured(Arc<std::sync::Mutex<Vec<u8>>>);
+
+impl std::io::Write for Captured {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(buf);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl Captured {
+    fn text(&self) -> String {
+        String::from_utf8_lossy(&self.0.lock().unwrap()).into_owned()
+    }
+}
+
+#[tokio::test]
+async fn pg_delete_removes_memory_and_links_logs_id_and_client_not_text_and_is_404_twice() {
+    let Some(db) = TestDb::create().await else {
+        return;
+    };
+    let log = Captured::default();
+    let writer = log.clone();
+    let _guard = tracing::subscriber::set_default(
+        tracing_subscriber::fmt()
+            .with_ansi(false)
+            .with_writer(move || writer.clone())
+            .finish(),
+    );
+    let h = harness(&db, FakeEmbedder::new(false)).await;
+    probe(&h.state).await;
+    let k = Some(h.key.as_str());
+    let doomed = call(
+        &h.app,
+        Method::POST,
+        "/v1/memories",
+        k,
+        Some(memory("leaked", "POISON hunter2-secret")),
+    )
+    .await
+    .json();
+    let kept = call(
+        &h.app,
+        Method::POST,
+        "/v1/memories",
+        k,
+        Some(memory("kept", "rotate it")),
+    )
+    .await
+    .json();
+    let (idd, idk) = (doomed["id"].as_str().unwrap(), kept["id"].as_str().unwrap());
+    let link = call(
+        &h.app,
+        Method::POST,
+        "/v1/links",
+        k,
+        Some(json!({"from_id": idk, "to_id": idd, "link_type": "SOLVES"})),
+    )
+    .await;
+    assert_eq!(link.status, StatusCode::CREATED);
+    assert_eq!(embed_pending(&h.state).await.unwrap(), 1);
+    let health = call(&h.app, Method::GET, "/health", k, None).await.json();
+    assert_eq!(health["embed_failed_rows"], 1);
+
+    let path = format!("/v1/memories/{idd}");
+    let anon = call(&h.app, Method::DELETE, &path, None, None).await;
+    assert_eq!(anon.status, StatusCode::UNAUTHORIZED);
+
+    let del = call(&h.app, Method::DELETE, &path, k, None).await;
+    assert_eq!(del.status, StatusCode::OK);
+    assert_eq!(del.json(), json!({"id": idd, "links_removed": 1}));
+    assert!(del.headers.contains_key(API_VERSION_HEADER));
+
+    let gone = call(&h.app, Method::GET, &path, k, None).await;
+    assert_eq!(gone.status, StatusCode::NOT_FOUND);
+    let rel = call(
+        &h.app,
+        Method::GET,
+        &format!("/v1/memories/{idk}/related"),
+        k,
+        None,
+    )
+    .await;
+    assert_eq!(rel.json(), json!([]));
+    let health = call(&h.app, Method::GET, "/health", k, None).await.json();
+    assert_eq!(health["memory_count"], 1);
+    assert_eq!(
+        health["embed_failed_rows"], 0,
+        "a deleted row no longer counts as failed"
+    );
+
+    let again = call(&h.app, Method::DELETE, &path, k, None).await;
+    assert_eq!(again.status, StatusCode::NOT_FOUND);
+    assert!(again.json()["error"].as_str().unwrap().contains(idd));
+
+    let text = log.text();
+    let line = text
+        .lines()
+        .find(|l| l.contains("memory deleted"))
+        .unwrap_or_else(|| panic!("no deletion log line in {text}"));
+    assert!(
+        line.contains(idd) && line.contains("client=tester"),
+        "{line}"
+    );
+    assert!(!text.contains("hunter2"), "deleted text reached the log");
+    db.drop_db().await;
+}

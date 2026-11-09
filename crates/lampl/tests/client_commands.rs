@@ -756,3 +756,25 @@ fn pg_from_postgres_reads_memorygraphs_flat_schema_and_skips_invalidated_links()
         .await;
     });
 }
+
+#[test]
+fn pg_delete_removes_a_memory_and_its_links_and_a_second_delete_fails() {
+    let Some(l) = start(Fake {
+        digest: "sha256:a",
+        down: false,
+    }) else {
+        return;
+    };
+    let ids = populate(&l);
+    let out = json(&l.ok(&["delete", &ids[3]]));
+    assert_eq!(out["id"], ids[3].as_str());
+    assert_eq!(out["links_removed"], 1);
+    assert!(!l.ok(&["related", &ids[2]]).contains("SOLVES"));
+    assert!(!l.recall_ids("unbound crashed").contains(&ids[3]));
+    assert!(l.lampl(&["get", &ids[2]]).status.success());
+
+    let again = l.lampl(&["delete", &ids[3]]);
+    assert!(!again.status.success());
+    assert!(again.stdout.is_empty());
+    assert!(err(&again).contains("not found"), "{}", err(&again));
+}

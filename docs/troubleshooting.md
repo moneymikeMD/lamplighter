@@ -20,7 +20,7 @@ problem.
 | `/health` says degraded for vector coverage | Fewer than 95% of memories have vectors, for example right after a large import | Wait for the background worker; lower `--min-coverage` only if you accept it |
 | Recall prints nothing | Nothing cleared the floor (cosine 0.52 or `capped:3` coverage 0.52) | Rephrase as a question about the decision; try `--json`; confirm the memory exists with `get`; very small stores give weak IDF coverage |
 | A memory I stored is missing from vector results | Not embedded yet (server mode embeds in the background) | It is found by full text at once; wait a few seconds |
-| `lampl audit` / `link` / `export` says it needs a server | Embedded mode has `store` and `recall` only | Use a server ([modes](modes/README.md)) |
+| `lampl audit` / `link` / `export` says it needs a server | Embedded mode has `store`, `recall` and `delete` only | Use a server ([modes](modes/README.md)) |
 | ``missing; run `lampl init --local` `` | The embedded database file was deleted | Restore it or re-init; lampl will not open an empty store silently |
 | Plugin says `lampl` missing | Not on the `PATH` Claude Code sees | Install it ([install.md](install.md)); restart Claude Code |
 | Hook prints a timeout, or memories go quiet for up to five minutes | Its circuit breaker opened after a failure; the next new session probes and closes it once recall works | `LAMPL_PUSH_BREAKER`, or fix the cause named in the one-line message; see [plugin.md](plugin.md) |

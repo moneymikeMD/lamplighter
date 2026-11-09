@@ -36,6 +36,8 @@ enum Command {
     Link(cmd::LinkArgs),
     /// List the memories linked to one
     Related(cmd::RelatedArgs),
+    /// Permanently delete a memory and its links (server or local store, as configured)
+    Delete(cmd::DeleteArgs),
     /// Check the server, its store and embedder; non-zero on any problem
     Doctor(cmd::DoctorArgs),
     /// Report duplicate, stale and untagged memories (read-only)
@@ -58,6 +60,7 @@ fn main() {
         Command::Get(args) => cmd::get(&args),
         Command::Link(args) => cmd::link(&args),
         Command::Related(args) => cmd::related(&args),
+        Command::Delete(args) => cmd::delete(&args),
         Command::Doctor(args) => cmd::doctor(&args),
         Command::Audit(args) => cmd::audit(&args),
         Command::Export(args) => cmd::export(&args),

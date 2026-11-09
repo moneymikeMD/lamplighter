@@ -196,6 +196,26 @@ impl PgStore {
         row.as_ref().map(memory_from_row).transpose()
     }
 
+    /// Permanently removes a memory and every link to or from it; returns the number of links removed, or `None` if the id is unknown.
+    pub async fn delete(&self, id: Uuid) -> Result<Option<u64>, StoreError> {
+        let mut tx = self.pool.begin().await?;
+        let links = sqlx::query("DELETE FROM links WHERE from_id = $1 OR to_id = $1")
+            .bind(id)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected();
+        let found = sqlx::query("DELETE FROM memories WHERE id = $1")
+            .bind(id)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected();
+        if found == 0 {
+            return Ok(None);
+        }
+        tx.commit().await?;
+        Ok(Some(links))
+    }
+
     pub async fn link(
         &self,
         from_id: Uuid,

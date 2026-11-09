@@ -178,8 +178,9 @@ release-please ([docs/releasing.md](docs/releasing.md)).
 ## Security
 
 lamplighter has no telemetry and no accounts. `lampl serve` refuses to start without API keys, stores only SHA-256 hashes of them, refuses a keys file readable by group or others, and re-reads the
-file within a second so a revoked key stops working without a restart. Keep secrets out of memories; the store is not encrypted at rest. Report a vulnerability through the repository's Security tab
-or, if that is not offered, by opening an issue that asks for a private contact without describing the flaw. See [SECURITY.md](SECURITY.md).
+file within a second so a revoked key stops working without a restart. Keep secrets out of memories; the store is not encrypted at rest. If one gets in, `lampl delete ID` removes the memory and
+its links, and the server logs only the id and the calling key's name ([docs/cli.md](docs/cli.md#delete)). Report a vulnerability through the repository's Security tab or, if that is not offered,
+by opening an issue that asks for a private contact without describing the flaw. See [SECURITY.md](SECURITY.md).
 
 ## Telemetry
 

@@ -3,8 +3,8 @@
 > Agent memory as one binary. `lampl` stores an agent's decisions, root causes and gotchas, recalls them with hybrid full-text and vector search behind a calibrated relevance floor, and reaches the
 agent through Claude Code hooks, a CLI and an MCP server. Apache-2.0, Rust, no LLM key required. Modes: embedded SQLite, `lampl serve` on Postgres with pgvector, external Postgres, Docker.
 
-Memory types: fact, decision, problem, fix, procedure, gotcha. Link types: SUPERSEDES, SOLVES, CAUSES, CONTRADICTS. Embedded mode supports store and recall only; links, audit, export and import need a
-server. Recall may return nothing by design.
+Memory types: fact, decision, problem, fix, procedure, gotcha. Link types: SUPERSEDES, SOLVES, CAUSES, CONTRADICTS. Embedded mode supports store, recall and delete only; links, audit, export and import need a
+server. Recall may return nothing by design. `lampl delete ID` removes a mistaken memory and its links; retire a stale one with SUPERSEDES instead.
 
 ## Start
 

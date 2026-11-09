@@ -288,9 +288,13 @@ fn keys_unavailable() -> Response {
         .into_response()
 }
 
+/// The keys-file name of the client that authenticated this request, for handlers that log who acted.
+#[derive(Debug, Clone)]
+pub(crate) struct ClientName(pub(crate) String);
+
 pub(crate) async fn require_key(
     State(state): State<Arc<AppState>>,
-    req: Request,
+    mut req: Request,
     next: Next,
 ) -> Response {
     if req.uri().path() == "/health" && state.keys.is_failed() {
@@ -305,6 +309,7 @@ pub(crate) async fn require_key(
     match presented.and_then(|k| state.keys.authenticate(k)) {
         Some(name) => {
             tracing::debug!(client = %name, path = %req.uri().path(), "authenticated");
+            req.extensions_mut().insert(ClientName(name));
             next.run(req).await
         }
         None => {
