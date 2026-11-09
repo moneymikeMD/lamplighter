@@ -23,7 +23,7 @@ Every setting, with where it is read. Verified against `crates/lampl/src` at 0.1
 | `--embed-endpoint` | | in-process model | HTTP embedding endpoint |
 | `--embed-endpoint-kind` | | `openai` | `openai` or `ollama` |
 | `--embed-model` | | `Qwen/Qwen3-Embedding-0.6B` | Model name sent to the endpoint |
-| `--fetch-tokenizer` | | off | With `--embed-endpoint`: download the Qwen3 tokenizer if not cached, so endpoint input is cut at exactly 512 tokens ([embeddings.md](embeddings.md#input-truncation)) |
+| `--fetch-tokenizer` | | off | Recommended whenever `--embed-endpoint` is set: download the Qwen3 tokenizer if not cached, so endpoint input is cut at exactly 512 tokens ([embeddings.md](embeddings.md#input-truncation)) |
 | | `LAMPL_EMBED_API_KEY` | none | Bearer token for the endpoint |
 | `--min-coverage` | | `0.95` | `/health` reports degraded below this vector coverage (0 to 1) |
 | `--embed-interval-secs` | | `5` | Seconds between background embedding sweeps |
