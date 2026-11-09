@@ -166,7 +166,7 @@ fn timestamp(v: &Value, fallback: DateTime<Utc>) -> String {
         .to_rfc3339()
 }
 
-/// Maps memorygraph memories and relationships onto the lean model. Ids that are not UUIDs get a stable v5 id so a second run produces the same rows; an unknown type or link type fails the whole import.
+/// Maps memorygraph memories and relationships onto the lean model. Ids that are not UUIDs get a stable v5 id so a second run produces the same rows; an unknown memory type fails the whole import, while an unmapped link type is dropped and counted by name in the report.
 pub(crate) fn from_memorygraph(
     memories: &[Value],
     rels: &[Value],
@@ -228,12 +228,13 @@ pub(crate) fn from_memorygraph(
     }
     for r in rels {
         let src_type = r["type"].as_str().unwrap_or_default();
-        let target = map.links.get(src_type).ok_or_else(|| {
-            format!(
-                "relationship type `{src_type}` is not in the mapping table; known: {}",
-                map.links.keys().cloned().collect::<Vec<_>>().join(", ")
-            )
-        })?;
+        let Some(target) = map.links.get(src_type) else {
+            *bundle
+                .report
+                .entry(format!("links dropped: unmapped type {src_type}"))
+                .or_default() += 1;
+            continue;
+        };
         if target == "dropped" {
             *bundle
                 .report
@@ -281,7 +282,40 @@ mod tests {
         let m = mapping().unwrap();
         assert_eq!(m.types.len(), 13);
         assert_eq!(m.links["CONTRADICTS"], "CONTRADICTS");
-        assert!(!m.links.values().any(|v| v == "SUPERSEDES"));
+        assert_eq!(m.links["REPLACES"], "SUPERSEDES");
+        assert_ne!(m.links["CONTRADICTS"], "SUPERSEDES");
+    }
+
+    fn rel(kind: &str, from: &str, to: &str) -> Value {
+        json!({"type": kind, "from_memory_id": from, "to_memory_id": to, "properties": {"strength": 0.7}})
+    }
+
+    #[test]
+    fn memorygraph_013_link_types_map_and_unknown_types_are_counted() {
+        let mems: Vec<Value> = ["a", "b"]
+            .iter()
+            .map(|i| json!({"id": i, "type": "general", "title": *i, "content": "c"}))
+            .collect();
+        let rels = vec![
+            rel("ADDRESSES", "a", "b"),
+            rel("REPLACES", "a", "b"),
+            rel("BUILDS_ON", "a", "b"),
+            rel("DEPENDS_ON", "a", "b"),
+            rel("FOLLOWS", "a", "b"),
+            rel("FUTURE_TYPE", "a", "b"),
+            rel("FUTURE_TYPE", "b", "a"),
+        ];
+        let b = from_memorygraph(&mems, &rels, "p").unwrap();
+        let types: Vec<&str> = b
+            .links
+            .iter()
+            .map(|l| l["link_type"].as_str().unwrap())
+            .collect();
+        assert_eq!(types, ["SOLVES", "SUPERSEDES"]);
+        assert_eq!(b.links[1]["from_id"], json!(remap("a")));
+        assert_eq!(b.links[1]["to_id"], json!(remap("b")));
+        assert_eq!(b.report["links dropped: BUILDS_ON"], 1);
+        assert_eq!(b.report["links dropped: unmapped type FUTURE_TYPE"], 2);
     }
 
     #[test]

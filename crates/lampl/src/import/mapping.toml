@@ -16,11 +16,17 @@ project = "fact"
 task = "fact"
 file_context = "fact"
 
-# A link type maps to itself or to "dropped" (counted in the import report, never written).
+# A link type maps to a lean link type (itself or another, direction kept) or to "dropped" (counted in the import report, never written).
+# A type absent from this table is dropped and counted by name in the report; it does not fail the import.
 [links]
 SOLVES = "SOLVES"
+ADDRESSES = "SOLVES"
 CAUSES = "CAUSES"
 CONTRADICTS = "CONTRADICTS"
+REPLACES = "SUPERSEDES"
 RELATED_TO = "dropped"
 SIMILAR_TO = "dropped"
 BLOCKS = "dropped"
+BUILDS_ON = "dropped"
+DEPENDS_ON = "dropped"
+FOLLOWS = "dropped"
