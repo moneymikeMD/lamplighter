@@ -27,6 +27,9 @@ Every setting, with where it is read. Verified against `crates/lampl/src` at 0.1
 | `--min-coverage` | | `0.95` | `/health` reports degraded below this vector coverage (0 to 1) |
 | `--embed-interval-secs` | | `5` | Seconds between background embedding sweeps |
 | | `RUST_LOG` | `info` | `tracing` filter for server logs |
+| | `NO_COLOR` | unset | Any non-empty value forces plain log lines |
+
+`lampl serve` writes its logs to stderr, never stdout. Lines carry ANSI colour only when stderr is a terminal and `NO_COLOR` is unset or empty, so a service manager (a launchd `StandardErrorPath`, systemd's journal) receives plain text. Capture stderr, not stdout.
 
 `lampl serve keys add|list|revoke NAME` takes `--keys-file` or `LAMPL_KEYS_FILE`.
 

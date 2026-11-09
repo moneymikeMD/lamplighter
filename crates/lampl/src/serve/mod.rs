@@ -282,8 +282,18 @@ pub fn run(cmd: Cmd) -> Result<(), String> {
     serve(cmd.serve)
 }
 
+fn log_ansi(stderr_is_terminal: bool, no_color: Option<&std::ffi::OsStr>) -> bool {
+    stderr_is_terminal && no_color.is_none_or(std::ffi::OsStr::is_empty)
+}
+
 fn serve(args: Args) -> Result<(), String> {
+    use std::io::IsTerminal;
     tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .with_ansi(log_ansi(
+            std::io::stderr().is_terminal(),
+            std::env::var_os("NO_COLOR").as_deref(),
+        ))
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
@@ -334,4 +344,18 @@ fn serve(args: Args) -> Result<(), String> {
             .await
             .map_err(|e| e.to_string())
     })
+}
+
+#[cfg(test)]
+mod log_ansi_tests {
+    use super::log_ansi;
+    use std::ffi::OsStr;
+
+    #[test]
+    fn colour_only_on_a_terminal_without_no_color() {
+        assert!(log_ansi(true, None));
+        assert!(log_ansi(true, Some(OsStr::new(""))));
+        assert!(!log_ansi(true, Some(OsStr::new("1"))));
+        assert!(!log_ansi(false, None));
+    }
 }
