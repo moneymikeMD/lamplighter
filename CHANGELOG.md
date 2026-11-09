@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.4.0](https://github.com/moneymikeMD/lamplighter/compare/v0.3.0...v0.4.0) (2026-11-09)
+
+
+### Features
+
+* **cli:** lampl delete removes a mistaken memory and its links (LAMP-30) ([#41](https://github.com/moneymikeMD/lamplighter/issues/41)) ([b910a80](https://github.com/moneymikeMD/lamplighter/commit/b910a8020aa449f31ff2b948a32f4bbc5296f4b7))
+* **serve:** name rows that fail to embed and retry them on request (LAMP-28) ([#42](https://github.com/moneymikeMD/lamplighter/issues/42)) ([bac48c9](https://github.com/moneymikeMD/lamplighter/commit/bac48c92616be6a21384bc9ea8da7b5fffe6edf0))
+
+
+### Bug Fixes
+
+* **embed:** endpoint embedder cuts input to the in-process 512-token window (LAMP-25) ([#43](https://github.com/moneymikeMD/lamplighter/issues/43)) ([31fc831](https://github.com/moneymikeMD/lamplighter/commit/31fc831207b39e6af7e0864cc6b46eed8be3aa19))
+* **import:** map memorygraph 0.13 link types, REPLACES to SUPERSEDES, count unmapped types (LAMP-26) ([#39](https://github.com/moneymikeMD/lamplighter/issues/39)) ([1d6183e](https://github.com/moneymikeMD/lamplighter/commit/1d6183ecc279c68711355beae86cc23bd3ca60a6))
+* **local:** embed title, a blank line, then body, as serve does (LAMP-31) ([#45](https://github.com/moneymikeMD/lamplighter/issues/45)) ([620c05e](https://github.com/moneymikeMD/lamplighter/commit/620c05e05c82521fb56170c2e985783aaa7b0cd6))
+* **serve:** log to stderr, ANSI only on a terminal and without NO_COLOR (LAMP-27) ([#38](https://github.com/moneymikeMD/lamplighter/issues/38)) ([2392763](https://github.com/moneymikeMD/lamplighter/commit/2392763b54e8c9bc1857cc180b37fd17eca6b9e5))
+* **serve:** refuse an empty or anonymous database user and document Unix-socket URLs (LAMP-29) ([#40](https://github.com/moneymikeMD/lamplighter/issues/40)) ([fcaf34e](https://github.com/moneymikeMD/lamplighter/commit/fcaf34e1e5a52f4fa0609abb8b091dc03ed2096d))
+
 ## [0.3.0](https://github.com/moneymikeMD/lamplighter/compare/v0.2.1...v0.3.0) (2026-11-08)
 
 
