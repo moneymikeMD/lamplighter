@@ -24,24 +24,6 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-      # release-please cannot address Cargo.lock entries, so the lockfile is synced on the release branch.
-      - name: Sync Cargo.lock on the release PR
-        if: ${{ steps.release.outputs.prs_created == 'true' }}
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          BRANCH: ${{ fromJSON(steps.release.outputs.pr).headBranchName }}
-        run: |
-          git clone --quiet --depth 1 --branch "${BRANCH}" "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" rp
-          cd rp
-          cargo update --workspace
-          if git diff --quiet Cargo.lock; then
-            echo "Cargo.lock already matches"
-            exit 0
-          fi
-          git -c user.name='moneymike-release[bot]' -c user.email='353580701+moneymike-release[bot]@users.noreply.github.com' \
-            commit --quiet -m 'chore: sync Cargo.lock to the release version' Cargo.lock
-          git push --quiet origin "HEAD:${BRANCH}"
-
       # Plugin dependency ranges resolve against lamplighter--vX.Y.Z tags; release-please tags vX.Y.Z.
       - name: Add the lamplighter--v tag for the plugin
         if: ${{ steps.release.outputs.release_created }}
@@ -56,3 +38,27 @@ jobs:
           else
             gh api "repos/${GITHUB_REPOSITORY}/git/refs" -f ref="${ref}" -f sha="${RELEASE_SHA}"
           fi
+
+      # release-please cannot address Cargo.lock entries, so the lockfile is synced on the release branch.
+      # The PR JSON is parsed in the script: on a release commit `pr` can be empty, and fromJSON('') fails the whole job.
+      - name: Sync Cargo.lock on the release PR
+        if: ${{ steps.release.outputs.prs_created == 'true' }}
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_JSON: ${{ steps.release.outputs.pr }}
+        run: |
+          BRANCH=$(jq -r '.headBranchName // empty' <<<"${PR_JSON:-}" 2>/dev/null || true)
+          if [ -z "${BRANCH}" ]; then
+            echo "no release PR branch in this run; nothing to sync"
+            exit 0
+          fi
+          git clone --quiet --depth 1 --branch "${BRANCH}" "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" rp
+          cd rp
+          cargo update --workspace
+          if git diff --quiet Cargo.lock; then
+            echo "Cargo.lock already matches"
+            exit 0
+          fi
+          git -c user.name='moneymike-release[bot]' -c user.email='353580701+moneymike-release[bot]@users.noreply.github.com' \
+            commit --quiet -m 'chore: sync Cargo.lock to the release version' Cargo.lock
+          git push --quiet origin "HEAD:${BRANCH}"
