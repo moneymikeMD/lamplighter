@@ -58,6 +58,7 @@ pub struct AppState {
     pub(crate) store: PgStore,
     pub(crate) embedder: SharedEmbedder,
     pub(crate) embed_mode: EmbedMode,
+    pub(crate) embed_truncation: std::sync::OnceLock<String>,
     pub(crate) keys: KeyStore,
     pub(crate) embed_status: EmbedStatus,
     pub(crate) min_coverage: f64,
@@ -86,12 +87,18 @@ impl AppState {
             store,
             embedder,
             embed_mode,
+            embed_truncation: std::sync::OnceLock::new(),
             keys,
             embed_status: EmbedStatus::new(),
             min_coverage,
             failed: std::sync::Mutex::default(),
             last_retry: std::sync::Mutex::new(std::time::Instant::now()),
         })
+    }
+
+    /// Records the endpoint embedder's input cut (`tokens:512` or `chars:1500`) for `/health`; set once, and left unset in in-process mode.
+    pub fn set_embed_truncation(&self, mode: &str) {
+        let _ = self.embed_truncation.set(mode.to_owned());
     }
 }
 
@@ -252,7 +259,7 @@ fn keys_command(keys_file: Option<PathBuf>, action: &KeysAction) -> Result<(), S
     Ok(())
 }
 
-fn build_embedder(args: &Args) -> Result<(SharedEmbedder, EmbedMode), String> {
+fn build_embedder(args: &Args) -> Result<(SharedEmbedder, EmbedMode, Option<String>), String> {
     if let Some(url) = &args.embed_endpoint {
         let kind = match args.embed_endpoint_kind.as_str() {
             "openai" => EndpointKind::OpenAi,
@@ -269,8 +276,9 @@ fn build_embedder(args: &Args) -> Result<(SharedEmbedder, EmbedMode), String> {
             Some(t) => e.with_truncator(t),
             None => e,
         };
-        tracing::info!(truncation = %e.truncator().describe(), "endpoint embedder input truncation");
-        return Ok((Arc::new(e), EmbedMode::Endpoint));
+        let truncation = e.truncator().describe();
+        tracing::info!(truncation = %truncation, "endpoint embedder input truncation");
+        return Ok((Arc::new(e), EmbedMode::Endpoint, Some(truncation)));
     }
     let embedder: SharedEmbedder = match LocalEmbedder::load(&LocalConfig::default()) {
         Ok(e) => Arc::new(e),
@@ -281,7 +289,7 @@ fn build_embedder(args: &Args) -> Result<(SharedEmbedder, EmbedMode), String> {
             })
         }
     };
-    Ok((embedder, EmbedMode::InProcess))
+    Ok((embedder, EmbedMode::InProcess, None))
 }
 
 /// The cached Qwen3 tokenizer, fetched first when `fetch` is set; `None` (with a warning) leaves the character cap in place.
@@ -355,11 +363,14 @@ fn serve(args: Args) -> Result<(), String> {
                 "database schema version {found} is newer than this build understands ({known}); upgrade lampl"
             ));
         }
-        let (embedder, mode) = {
+        let (embedder, mode, truncation) = {
             let args = &args;
             tokio::task::block_in_place(|| build_embedder(args))?
         };
         let state = AppState::new(store, embedder, mode, keys, args.min_coverage);
+        if let Some(t) = &truncation {
+            state.set_embed_truncation(t);
+        }
         probe(&state).await;
         tokio::spawn(worker::run(
             Arc::clone(&state),

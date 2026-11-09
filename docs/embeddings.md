@@ -54,6 +54,9 @@ the request, so an endpoint with a context (per slot, for llama-server `-c / -np
 - **Approximate:** without the tokenizer, the text is cut at 1,500 characters and the startup log warns (`truncation=chars:1500`). Measured with the Qwen3 tokenizer on 38 long texts
   from this workspace (Markdown docs, handoffs, Rust source): 1,500 characters is 405 tokens at the median, 525 at p95 and 661 at most, so a long memory is represented by somewhat
   less than the in-process 512 tokens, and an endpoint context of 1,024 tokens is safe for that text. Dense code or non-Latin text can run past 512 tokens; use the tokenizer.
+  The trade-off: every text over 1,500 characters is cut, including medium texts of roughly 375 to 511 tokens that the in-process model embeds whole, so the fallback vector for those
+  is not the calibrated input the relevance floor was tuned on. Use `--fetch-tokenizer` for endpoint mode. `/health` reports the mode as `embed_truncation` and `lampl doctor` shows it
+  (approximate mode is flagged but is not a degraded condition).
 - The tokenizer is Qwen3's whatever `--embed-model` names. For another 1024-dimension model the cut is close to 512 of its tokens, not exact.
 
 Constraints, from the code:

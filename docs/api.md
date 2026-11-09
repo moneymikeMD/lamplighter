@@ -52,6 +52,7 @@ Open, no details: `{"status": "alive"}`. Process liveness only; it proves nothin
   "schema_version": 1,
   "embed_mode": "in-process",
   "embed_model": "Qwen/Qwen3-Embedding-0.6B",
+  "embed_truncation": null,
   "embed_digest": "sha256:...",
   "store": {"host": "10.0.0.5", "port": 5432, "database": "lampl"},
   "embedder_available": true,
@@ -67,7 +68,7 @@ Open, no details: `{"status": "alive"}`. Process liveness only; it proves nothin
 }
 ```
 
-`status` is `ok` only when `degraded` is false. `/health` probes the embedder itself (a recorded outcome younger than 500 ms is reused; a probe that hangs counts as failed after 5 s), so it cannot report a stale ok. `embed_failed_rows` counts rows the embedder rejected; they are skipped, retried every ten minutes, and keep the store degraded. `embed_failed` lists up to 50 of them in id order as `{"id", "error", "failed_at"}`: the memory id, the embedder's last error for that row (cut to 200 characters) and when it failed; memory text never appears. `embed_retry_every_secs` is that interval and `embed_next_retry_at` (UTC, RFC 3339) is when the worker next re-queues failed rows; it does so at the first idle sweep after that time. `POST /v1/embed/retry-failed` re-queues them at once. `degraded` is true when the embedder probe failed (recall is then full-text only) or `vector_coverage` is below `min_coverage`. `vector_coverage` is rows embedded by the current model over all rows, and is `1.0` for an empty store, where `memory_count: 0` says so explicitly. `503` with `status: "unavailable"` when the database cannot be queried. Monitors need a key and should assert `degraded == false` and the coverage they expect, not just HTTP 200.
+`embed_truncation` is how an endpoint embedder cuts input before sending it: `tokens:512` (exact, Qwen3 tokenizer cached) or `chars:1500` (approximate fallback; `lampl serve --fetch-tokenizer` makes it exact). It is `null` in in-process mode, which cuts at 512 tokens itself, and the approximate mode is not a degraded condition. `status` is `ok` only when `degraded` is false. `/health` probes the embedder itself (a recorded outcome younger than 500 ms is reused; a probe that hangs counts as failed after 5 s), so it cannot report a stale ok. `embed_failed_rows` counts rows the embedder rejected; they are skipped, retried every ten minutes, and keep the store degraded. `embed_failed` lists up to 50 of them in id order as `{"id", "error", "failed_at"}`: the memory id, the embedder's last error for that row (cut to 200 characters) and when it failed; memory text never appears. `embed_retry_every_secs` is that interval and `embed_next_retry_at` (UTC, RFC 3339) is when the worker next re-queues failed rows; it does so at the first idle sweep after that time. `POST /v1/embed/retry-failed` re-queues them at once. `degraded` is true when the embedder probe failed (recall is then full-text only) or `vector_coverage` is below `min_coverage`. `vector_coverage` is rows embedded by the current model over all rows, and is `1.0` for an empty store, where `memory_count: 0` says so explicitly. `503` with `status: "unavailable"` when the database cannot be queried. Monitors need a key and should assert `degraded == false` and the coverage they expect, not just HTTP 200.
 
 ### `POST /v1/memories`
 

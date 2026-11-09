@@ -180,16 +180,15 @@ mod tests {
         assert!(!dir.exists());
     }
 
-    /// Runs only where the Qwen3 tokenizer is cached (`lampl doctor --fetch-model`): the cut text re-tokenizes to the 511
+    /// Needs the cached tokenizer (`lampl doctor --fetch-model`, run with `--ignored`): the cut text re-tokenizes to the 511
     /// content tokens the in-process model keeps before its end-of-text token.
     #[test]
+    #[ignore = "needs the cached Qwen3 model: lampl doctor --fetch-model, then cargo test -p lampl-embed -- --ignored"]
     fn qwen_cut_matches_in_process_window_when_cached() {
         let cfg = LocalConfig::default();
-        let Some(t) = Truncator::cached(&cfg) else {
-            eprintln!("skipped: Qwen3 tokenizer not cached");
-            return;
-        };
-        let t = t.unwrap();
+        let t = Truncator::cached(&cfg)
+            .expect("Qwen3 tokenizer not cached")
+            .unwrap();
         let raw = Tokenizer::from_file(tokenizer_path(&cfg).unwrap()).unwrap();
         let long = "Deploy notes: the café's `lampl serve` on /mnt/tank/apps 🚀 restarted twice; "
             .repeat(200);

@@ -60,15 +60,16 @@ mod tests {
         assert_eq!(cosine(&[0.0, 0.0], &[1.0, 0.0]), 0.0);
     }
 
-    /// Runs only where the model is cached: text cut by the endpoint's truncator embeds like the in-process model's own
+    /// Needs the cached model (`--ignored`): text cut by the endpoint's truncator embeds like the in-process model's own
     /// 512-token truncation of the whole text.
     #[test]
+    #[ignore = "needs the cached Qwen3 model: lampl doctor --fetch-model, then cargo test -p lampl-embed -- --ignored"]
     fn truncated_text_embeds_like_in_process_window_when_cached() {
         let cfg = LocalConfig::default();
-        let (Some(Ok(t)), Ok(local)) = (Truncator::cached(&cfg), LocalEmbedder::load(&cfg)) else {
-            eprintln!("skipped: model not cached");
-            return;
-        };
+        let t = Truncator::cached(&cfg)
+            .expect("Qwen3 tokenizer not cached")
+            .unwrap();
+        let local = LocalEmbedder::load(&cfg).unwrap();
         let long = format!(
             "Deploy notes\n\n{}",
             "The café's `lampl serve` on /mnt/tank/apps restarted twice after the pgvector upgrade; ".repeat(120)

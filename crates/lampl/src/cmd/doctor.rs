@@ -136,6 +136,13 @@ pub(crate) fn doctor(args: &DoctorArgs) -> Result<(), String> {
                 ),
                 format!("degraded: {}", h["degraded"]),
             ];
+            if let Some(t) = h["embed_truncation"].as_str() {
+                lines.push(if t.starts_with("chars:") {
+                    format!("embed input cut: {t} (approximate; run `lampl serve --fetch-tokenizer` on the server host for the exact 512-token cut)")
+                } else {
+                    format!("embed input cut: {t}")
+                });
+            }
             lines.extend(failed_lines(&h));
             lines.push(format!(
                 "local model cache: not needed in server mode ({})",
