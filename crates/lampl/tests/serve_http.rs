@@ -138,6 +138,7 @@ async fn harness(db: &TestDb, embedder: SharedEmbedder) -> Harness {
     let key = generate_key().unwrap();
     let keys = KeyStore::open(&keys_file(&key)).unwrap();
     let state = AppState::new(store, embedder, EmbedMode::Endpoint, keys, 0.95);
+    state.set_embed_truncation("chars:1500");
     Harness {
         app: router(Arc::clone(&state)),
         state,
@@ -307,6 +308,7 @@ async fn pg_health_reports_degraded_when_the_embedder_fails_and_recovers() {
     assert_eq!(health["memory_count"], 1);
     assert_eq!(health["vector_coverage"], 0.0);
     assert_eq!(health["embed_mode"], "endpoint");
+    assert_eq!(health["embed_truncation"], "chars:1500");
     assert!(health["schema_version"].as_i64().unwrap() >= 1);
     assert_eq!(health["api_version"], API_VERSION);
 

@@ -20,7 +20,8 @@ use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use lampl_embed::{
-    EmbedError, Embedder, EndpointEmbedder, EndpointKind, LocalConfig, LocalEmbedder,
+    EmbedError, Embedder, EndpointEmbedder, EndpointKind, LocalConfig, LocalEmbedder, Truncator,
+    prepare_tokenizer,
 };
 use lampl_store_pg::PgStore;
 
@@ -57,6 +58,7 @@ pub struct AppState {
     pub(crate) store: PgStore,
     pub(crate) embedder: SharedEmbedder,
     pub(crate) embed_mode: EmbedMode,
+    pub(crate) embed_truncation: std::sync::OnceLock<String>,
     pub(crate) keys: KeyStore,
     pub(crate) embed_status: EmbedStatus,
     pub(crate) min_coverage: f64,
@@ -85,12 +87,18 @@ impl AppState {
             store,
             embedder,
             embed_mode,
+            embed_truncation: std::sync::OnceLock::new(),
             keys,
             embed_status: EmbedStatus::new(),
             min_coverage,
             failed: std::sync::Mutex::default(),
             last_retry: std::sync::Mutex::new(std::time::Instant::now()),
         })
+    }
+
+    /// Records the endpoint embedder's input cut (`tokens:512` or `chars:1500`) for `/health`; set once, and left unset in in-process mode.
+    pub fn set_embed_truncation(&self, mode: &str) {
+        let _ = self.embed_truncation.set(mode.to_owned());
     }
 }
 
@@ -186,6 +194,9 @@ pub struct Args {
     /// Model name sent to the endpoint
     #[arg(long, default_value = lampl_embed::DEFAULT_REPO_ID)]
     embed_model: String,
+    /// With --embed-endpoint: download the model's tokenizer.json (about 11 MB) if it is not cached, so input is cut at exactly 512 tokens
+    #[arg(long, requires = "embed_endpoint")]
+    fetch_tokenizer: bool,
     /// /health reports degraded below this vector coverage (0..=1)
     #[arg(long, default_value_t = 0.95)]
     min_coverage: f64,
@@ -248,7 +259,7 @@ fn keys_command(keys_file: Option<PathBuf>, action: &KeysAction) -> Result<(), S
     Ok(())
 }
 
-fn build_embedder(args: &Args) -> Result<(SharedEmbedder, EmbedMode), String> {
+fn build_embedder(args: &Args) -> Result<(SharedEmbedder, EmbedMode, Option<String>), String> {
     if let Some(url) = &args.embed_endpoint {
         let kind = match args.embed_endpoint_kind.as_str() {
             "openai" => EndpointKind::OpenAi,
@@ -261,7 +272,13 @@ fn build_embedder(args: &Args) -> Result<(SharedEmbedder, EmbedMode), String> {
         };
         let key = std::env::var("LAMPL_EMBED_API_KEY").ok();
         let e = EndpointEmbedder::new(kind, url, &args.embed_model, key);
-        return Ok((Arc::new(e), EmbedMode::Endpoint));
+        let e = match endpoint_truncator(args.fetch_tokenizer)? {
+            Some(t) => e.with_truncator(t),
+            None => e,
+        };
+        let truncation = e.truncator().describe();
+        tracing::info!(truncation = %truncation, "endpoint embedder input truncation");
+        return Ok((Arc::new(e), EmbedMode::Endpoint, Some(truncation)));
     }
     let embedder: SharedEmbedder = match LocalEmbedder::load(&LocalConfig::default()) {
         Ok(e) => Arc::new(e),
@@ -272,7 +289,29 @@ fn build_embedder(args: &Args) -> Result<(SharedEmbedder, EmbedMode), String> {
             })
         }
     };
-    Ok((embedder, EmbedMode::InProcess))
+    Ok((embedder, EmbedMode::InProcess, None))
+}
+
+/// The cached Qwen3 tokenizer, fetched first when `fetch` is set; `None` (with a warning) leaves the character cap in place.
+fn endpoint_truncator(fetch: bool) -> Result<Option<Truncator>, String> {
+    let cfg = LocalConfig::default();
+    if fetch {
+        prepare_tokenizer(&cfg).map_err(|e| format!("--fetch-tokenizer: {e}"))?;
+    }
+    match Truncator::cached(&cfg) {
+        Some(Ok(t)) => Ok(Some(t)),
+        Some(Err(e)) => {
+            tracing::warn!(error = %e, "cached tokenizer unreadable; truncating endpoint input by characters");
+            Ok(None)
+        }
+        None => {
+            tracing::warn!(
+                cache = %cfg.cache_dir.display(),
+                "tokenizer not cached; truncating endpoint input by characters (run once with --fetch-tokenizer for exact 512-token truncation)"
+            );
+            Ok(None)
+        }
+    }
 }
 
 pub fn run(cmd: Cmd) -> Result<(), String> {
@@ -324,11 +363,14 @@ fn serve(args: Args) -> Result<(), String> {
                 "database schema version {found} is newer than this build understands ({known}); upgrade lampl"
             ));
         }
-        let (embedder, mode) = {
+        let (embedder, mode, truncation) = {
             let args = &args;
             tokio::task::block_in_place(|| build_embedder(args))?
         };
         let state = AppState::new(store, embedder, mode, keys, args.min_coverage);
+        if let Some(t) = &truncation {
+            state.set_embed_truncation(t);
+        }
         probe(&state).await;
         tokio::spawn(worker::run(
             Arc::clone(&state),

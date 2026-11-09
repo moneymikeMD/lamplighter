@@ -4,6 +4,7 @@
 
 use serde_json::{Value, json};
 
+use crate::truncate::{FALLBACK_MAX_CHARS, Truncator};
 use crate::{DIM, EmbedError, Embedder};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -17,6 +18,7 @@ pub struct EndpointEmbedder {
     base_url: String,
     model: String,
     api_key: Option<String>,
+    truncator: Truncator,
     agent: ureq::Agent,
 }
 
@@ -26,11 +28,13 @@ impl std::fmt::Debug for EndpointEmbedder {
             .field("kind", &self.kind)
             .field("base_url", &self.base_url)
             .field("model", &self.model)
+            .field("truncator", &self.truncator)
             .finish_non_exhaustive()
     }
 }
 
 impl EndpointEmbedder {
+    /// Truncates input to `FALLBACK_MAX_CHARS` characters until `with_truncator` gives it the model's tokenizer.
     pub fn new(kind: EndpointKind, base_url: &str, model: &str, api_key: Option<String>) -> Self {
         let agent: ureq::Agent = ureq::Agent::config_builder()
             .timeout_global(Some(std::time::Duration::from_secs(60)))
@@ -41,8 +45,19 @@ impl EndpointEmbedder {
             base_url: base_url.trim_end_matches('/').to_string(),
             model: model.to_string(),
             api_key,
+            truncator: Truncator::chars(FALLBACK_MAX_CHARS),
             agent,
         }
+    }
+
+    #[must_use]
+    pub fn with_truncator(mut self, truncator: Truncator) -> Self {
+        self.truncator = truncator;
+        self
+    }
+
+    pub fn truncator(&self) -> &Truncator {
+        &self.truncator
     }
 
     fn url(&self) -> String {
@@ -59,8 +74,12 @@ impl Embedder for EndpointEmbedder {
         if let Some(key) = &self.api_key {
             req = req.header("Authorization", &format!("Bearer {key}"));
         }
+        let input = texts
+            .iter()
+            .map(|t| self.truncator.cut(t))
+            .collect::<Result<Vec<&str>, _>>()?;
         let mut resp = req
-            .send_json(json!({ "model": self.model, "input": texts }))
+            .send_json(json!({ "model": self.model, "input": input }))
             .map_err(|e| EmbedError::Endpoint(e.to_string()))?;
         let body: Value = resp
             .body_mut()
@@ -131,6 +150,11 @@ mod tests {
     use super::*;
 
     fn serve_once(body: String) -> String {
+        serve_capture(body).0
+    }
+
+    fn serve_capture(body: String) -> (String, std::sync::mpsc::Receiver<String>) {
+        let (tx, rx) = std::sync::mpsc::channel();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         std::thread::spawn(move || {
@@ -156,6 +180,8 @@ mod tests {
                     break;
                 }
             }
+            let raw = String::from_utf8_lossy(&req).into_owned();
+            let _ = tx.send(raw.split("\r\n\r\n").nth(1).unwrap_or_default().to_owned());
             let _ = write!(
                 s,
                 "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
@@ -163,7 +189,7 @@ mod tests {
                 body
             );
         });
-        format!("http://{addr}")
+        (format!("http://{addr}"), rx)
     }
 
     fn vec_of(n: usize) -> Value {
@@ -196,5 +222,22 @@ mod tests {
                 got: 768
             })
         ));
+    }
+
+    #[test]
+    fn long_input_is_truncated_before_the_request() {
+        let (url, sent) =
+            serve_capture(json!({ "embeddings": [vec_of(DIM), vec_of(DIM)] }).to_string());
+        let e = EndpointEmbedder::new(EndpointKind::Ollama, &url, "m", None);
+        assert_eq!(
+            e.truncator().describe(),
+            format!("chars:{FALLBACK_MAX_CHARS}")
+        );
+        let long = "x".repeat(FALLBACK_MAX_CHARS * 3);
+        e.embed(&[long.as_str(), "short"]).unwrap();
+        let body: Value = serde_json::from_str(&sent.recv().unwrap()).unwrap();
+        let input = body["input"].as_array().unwrap();
+        assert_eq!(input[0].as_str().unwrap().len(), FALLBACK_MAX_CHARS);
+        assert_eq!(input[1], "short");
     }
 }

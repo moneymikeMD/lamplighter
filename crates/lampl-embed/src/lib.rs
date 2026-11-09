@@ -4,11 +4,13 @@
 
 mod endpoint;
 mod local;
+mod truncate;
 
 use std::path::PathBuf;
 
 pub use endpoint::{EndpointEmbedder, EndpointKind};
 pub use local::{LocalConfig, LocalEmbedder, default_cache_dir, model_cached, prepare};
+pub use truncate::{FALLBACK_MAX_CHARS, Truncator, prepare_tokenizer};
 
 pub const DEFAULT_REPO_ID: &str = "Qwen/Qwen3-Embedding-0.6B";
 pub const DIM: usize = 1024;
@@ -56,6 +58,38 @@ mod tests {
     fn cosine_of_identical_vectors_is_one() {
         assert!((cosine(&[1.0, 2.0, 3.0], &[1.0, 2.0, 3.0]) - 1.0).abs() < 1e-6);
         assert_eq!(cosine(&[0.0, 0.0], &[1.0, 0.0]), 0.0);
+    }
+
+    /// Needs the cached model (`--ignored`): text cut by the endpoint's truncator embeds like the in-process model's own
+    /// 512-token truncation of the whole text.
+    #[test]
+    #[ignore = "needs the cached Qwen3 model: lampl doctor --fetch-model, then cargo test -p lampl-embed -- --ignored"]
+    fn truncated_text_embeds_like_in_process_window_when_cached() {
+        let cfg = LocalConfig::default();
+        let t = Truncator::cached(&cfg)
+            .expect("Qwen3 tokenizer not cached")
+            .unwrap();
+        let local = LocalEmbedder::load(&cfg).unwrap();
+        let long = format!(
+            "Deploy notes\n\n{}",
+            "The café's `lampl serve` on /mnt/tank/apps restarted twice after the pgvector upgrade; ".repeat(120)
+        );
+        let cut = t.cut(&long).unwrap();
+        assert!(cut.len() < long.len());
+        let v = local.embed(&[long.as_str(), cut]).unwrap();
+        let parity = cosine(&v[0], &v[1]);
+        let whole = LocalEmbedder::load(&LocalConfig {
+            max_length: 8192,
+            ..cfg
+        })
+        .unwrap()
+        .embed(&[long.as_str()])
+        .unwrap();
+        eprintln!(
+            "cut vs in-process: {parity:.5}; whole text vs in-process: {:.5}",
+            cosine(&v[0], &whole[0])
+        );
+        assert!(parity > 0.999, "cosine {parity}");
     }
 
     #[test]

@@ -115,6 +115,7 @@ pub(crate) async fn health(State(state): State<Arc<AppState>>) -> Response {
         "schema_version": schema_version,
         "embed_mode": state.embed_mode.as_str(),
         "embed_model": state.embedder.model_id(),
+        "embed_truncation": state.embed_truncation.get(),
         "embed_digest": digest,
         "store": {
             "host": state.store.pool().connect_options().get_host(),
