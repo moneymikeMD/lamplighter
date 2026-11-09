@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.1](https://github.com/moneymikeMD/lamplighter/compare/v0.4.0...v0.4.1) (2026-11-09)
+
+
+### Bug Fixes
+
+* **release:** attach the host job's own dist-manifest.json to the release (LAMP-33) ([#48](https://github.com/moneymikeMD/lamplighter/issues/48)) ([1dfe854](https://github.com/moneymikeMD/lamplighter/commit/1dfe854ebccf8278c2ef62b423ff611980584259))
+* **release:** create the lamplighter--v tag before the Cargo.lock sync, and parse the PR JSON in the script (LAMP-32) ([#47](https://github.com/moneymikeMD/lamplighter/issues/47)) ([90b96d0](https://github.com/moneymikeMD/lamplighter/commit/90b96d04ebbda4f7813f468b6860f0ccba3d588c))
+
 ## [0.4.0](https://github.com/moneymikeMD/lamplighter/compare/v0.3.0...v0.4.0) (2026-11-09)
 
 

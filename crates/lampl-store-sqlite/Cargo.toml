@@ -12,7 +12,7 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
-lampl-core = { path = "../lampl-core", version = "0.4.0" }
+lampl-core = { path = "../lampl-core", version = "0.4.1" }
 chrono.workspace = true
 rusqlite.workspace = true
 sqlite-vec.workspace = true
