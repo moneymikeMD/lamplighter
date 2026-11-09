@@ -38,6 +38,11 @@ pub fn query_embed_text(query: &str) -> String {
     format!("{QUERY_INSTRUCTION}{}", query.to_lowercase())
 }
 
+/// The text a stored memory is embedded from in every mode: title, a blank line, then body, with no instruction prefix.
+pub fn memory_embed_text(title: &str, body: &str) -> String {
+    format!("{title}\n\n{body}")
+}
+
 /// Postgres's `english` text-search stop words, so a term that can never match is not counted.
 const STOP_WORDS: &[&str] = &[
     "i",
@@ -331,6 +336,11 @@ mod tests {
             query_terms("connect to github.com on port 22: ports connected."),
             ["connect", "github.com", "port", "22"]
         );
+    }
+
+    #[test]
+    fn memory_embed_text_puts_a_blank_line_between_title_and_body() {
+        assert_eq!(super::memory_embed_text("Title", "Body"), "Title\n\nBody");
     }
 
     #[test]

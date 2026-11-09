@@ -7,7 +7,7 @@ pub(crate) mod config;
 use std::path::Path;
 
 use clap::Args as ClapArgs;
-use lampl_core::{Embedding, MemoryType, NewMemory, query_embed_text};
+use lampl_core::{Embedding, MemoryType, NewMemory, memory_embed_text, query_embed_text};
 use lampl_embed::{Embedder, LocalConfig, LocalEmbedder, prepare};
 use lampl_store_sqlite::{RecallQuery, SqliteStore};
 
@@ -202,7 +202,7 @@ pub(crate) fn store_value(args: StoreArgs) -> Result<serde_json::Value, String> 
     let embedding = if args.no_embed {
         None
     } else {
-        Some(embed(&format!("{}\n{}", args.title, args.body))?)
+        Some(embed(&memory_embed_text(&args.title, &args.body))?)
     };
     let memory = db
         .store(NewMemory {
