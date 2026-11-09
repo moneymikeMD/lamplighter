@@ -17,7 +17,7 @@ Every setting, with where it is read. Verified against `crates/lampl/src` at 0.1
 
 | Flag | Environment | Default | Meaning |
 | --- | --- | --- | --- |
-| `--database-url` | `LAMPL_DATABASE_URL` | required | Postgres URL. Prefer the environment |
+| `--database-url` | `LAMPL_DATABASE_URL` | required | Postgres URL. Prefer the environment. The URL must name the role; an empty or `anonymous` role is refused. For a Unix socket, URL-encode the directory as the host: `postgresql://USER@%2Ftmp/lampl` (see [modes/serve-postgres.md](modes/serve-postgres.md#local-postgres-over-a-unix-socket)) |
 | `--keys-file` | `LAMPL_KEYS_FILE` | required | `<client> <sha256-hex>` lines, mode 600. Refuses to start missing, empty or group/world readable |
 | `--listen` | | `127.0.0.1:7878` | Address to bind |
 | `--embed-endpoint` | | in-process model | HTTP embedding endpoint |

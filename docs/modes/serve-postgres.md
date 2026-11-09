@@ -35,6 +35,24 @@
 
 The server runs pending migrations, creates the `vector` extension if missing, and logs `lampl serve ready`. If the model is missing it still starts, reports `degraded` and answers full-text only.
 
+### Local Postgres over a Unix socket
+
+Put the socket directory, URL-encoded, in the authority, and always name the role:
+
+```sh
+export LAMPL_DATABASE_URL="postgresql://$(id -un)@%2Ftmp/lampl"                      # Homebrew: socket in /tmp
+export LAMPL_DATABASE_URL="postgresql://$(id -un)@%2Fvar%2Frun%2Fpostgresql/lampl"   # Debian, Ubuntu
+```
+
+Under launchd or systemd, `$(id -un)` is not evaluated, so write the literal role name into the plist or unit. Two other forms fail:
+
+| URL | Result |
+| --- | --- |
+| `postgresql:///lampl?host=/tmp` | No user, so the role becomes `anonymous` (Postgres: `role "anonymous" does not exist`) |
+| `postgresql://<user>@/lampl?host=/tmp` | `error with configuration: empty host`; the `url` crate rejects credentials with an empty host |
+
+Where `anonymous` comes from: with no user in the URL and no `PGUSER`, sqlx 0.9 takes the user from the `whoami` crate, and sqlx builds `whoami` without its `std` feature, so `whoami` returns the constant `anonymous` on every platform, not only under launchd. `lampl serve` refuses an empty or `anonymous` role at start, before connecting, with a message naming `postgresql://<user>@%2Ftmp/lampl`. Setting `PGUSER` also works, unless it is `anonymous`.
+
 4. Point a client at it:
 
    ```sh
