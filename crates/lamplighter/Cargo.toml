@@ -12,4 +12,4 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
-lampl = { path = "../lampl", version = "0.3.0" }
+lampl = { path = "../lampl", version = "0.4.0" }
