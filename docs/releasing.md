@@ -13,7 +13,7 @@ A release is three independent pipelines that all start from one `vX.Y.Z` tag on
 
 1. Merge conventional commits (`feat:`, `fix:`, `chore:`) to `main`. release-please keeps one release PR open, bumping the workspace version, the internal path-dependency versions and `Cargo.lock`.
 2. Merge the release PR. release-please pushes `vX.Y.Z` using the `moneymike-release` GitHub App token (secrets `RELEASE_APP_ID`, `RELEASE_APP_PRIVATE_KEY`). A tag pushed with the default `GITHUB_TOKEN` would not trigger the other workflows.
-3. The same job then creates `lamplighter--vX.Y.Z` at the same commit. Plugin dependency ranges in moneymike-plugins resolve only against `<plugin>--v<version>` tags. Neither workflow triggers on that tag: they match `v[0-9]+.[0-9]+.[0-9]+*` anchored at the start.
+3. The same job then creates `lamplighter--vX.Y.Z` at the same commit. It runs before the `Cargo.lock` sync step, so a failure there cannot skip it. Plugin dependency ranges in moneymike-plugins resolve only against `<plugin>--v<version>` tags. Neither workflow triggers on that tag: they match `v[0-9]+.[0-9]+.[0-9]+*` anchored at the start.
 4. `release.yml`, `publish.yml` and `image.yml` run on the `vX.Y.Z` tag.
 
 Install paths for users: the shell installer attached to the GitHub Release, `cargo install lampl`, and `docker pull ghcr.io/moneymikemd/lamplighter`. The reference bundle is `deploy/compose.yaml`.
