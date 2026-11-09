@@ -25,12 +25,14 @@ use uuid::Uuid;
 #[derive(Debug)]
 struct FakeEmbedder {
     fail: AtomicBool,
+    reject_poison: AtomicBool,
 }
 
 impl FakeEmbedder {
     fn new(fail: bool) -> Arc<Self> {
         Arc::new(FakeEmbedder {
             fail: AtomicBool::new(fail),
+            reject_poison: AtomicBool::new(true),
         })
     }
 }
@@ -40,8 +42,12 @@ impl Embedder for FakeEmbedder {
         if self.fail.load(Ordering::Relaxed) {
             return Err(EmbedError::Endpoint("fake embedder is down".to_owned()));
         }
-        if texts.iter().any(|t| t.contains("POISON")) {
+        if self.reject_poison.load(Ordering::Relaxed) && texts.iter().any(|t| t.contains("POISON"))
+        {
             return Err(EmbedError::Embed("rejects this text".to_owned()));
+        }
+        if texts.iter().any(|t| t.contains("LONGERR")) {
+            return Err(EmbedError::Embed("e".repeat(1000)));
         }
         Ok(texts
             .iter()
@@ -399,6 +405,74 @@ async fn pg_a_row_the_embedder_rejects_does_not_block_later_rows() {
     assert_eq!(health["embed_failed_rows"], 1);
     assert_eq!(health["degraded"], true);
     assert_eq!(health["embedder_available"], true);
+    db.drop_db().await;
+}
+
+#[tokio::test]
+async fn pg_health_names_failed_rows_and_retry_failed_requeues_them_without_a_restart() {
+    let Some(db) = TestDb::create().await else {
+        return;
+    };
+    let embedder = FakeEmbedder::new(false);
+    let h = harness(&db, embedder.clone()).await;
+    probe(&h.state).await;
+    let k = Some(h.key.as_str());
+    let mut ids = Vec::new();
+    for (t, b) in [
+        ("poison", "secret POISON text"),
+        ("long", "LONGERR body"),
+        ("fine", "uno"),
+    ] {
+        let r = call(&h.app, Method::POST, "/v1/memories", k, Some(memory(t, b))).await;
+        ids.push(r.json()["id"].as_str().unwrap().to_owned());
+    }
+    assert_eq!(embed_pending(&h.state).await.unwrap(), 1);
+
+    let reply = call(&h.app, Method::GET, "/health", k, None).await;
+    let text = String::from_utf8_lossy(&reply.bytes).into_owned();
+    assert!(
+        !text.contains("secret"),
+        "no memory text in /health: {text}"
+    );
+    let health = reply.json();
+    assert_eq!(health["embed_failed_rows"], 2);
+    assert_eq!(health["embed_retry_every_secs"], 600);
+    let next = health["embed_next_retry_at"].as_str().unwrap();
+    let next = chrono::DateTime::parse_from_rfc3339(next).unwrap();
+    let ahead = next.signed_duration_since(chrono::Utc::now()).num_seconds();
+    assert!((590..=600).contains(&ahead), "next retry {ahead}s away");
+    let failed = health["embed_failed"].as_array().unwrap();
+    assert_eq!(failed.len(), 2);
+    let by_id = |id: &str| failed.iter().find(|f| f["id"] == id).unwrap().clone();
+    assert_eq!(
+        by_id(&ids[0])["error"],
+        "embedding failed: rejects this text"
+    );
+    assert!(by_id(&ids[0])["failed_at"].is_string());
+    let long = by_id(&ids[1])["error"].as_str().unwrap().chars().count();
+    assert!(long <= 201, "error capped, got {long} chars");
+
+    let anon = call(&h.app, Method::POST, "/v1/embed/retry-failed", None, None).await;
+    assert_eq!(anon.status, StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        embed_pending(&h.state).await.unwrap(),
+        0,
+        "still skipped before a retry"
+    );
+
+    embedder.reject_poison.store(false, Ordering::Relaxed);
+    let retry = call(&h.app, Method::POST, "/v1/embed/retry-failed", k, None).await;
+    assert_eq!(retry.status, StatusCode::OK);
+    assert_eq!(retry.json()["retried"], 2);
+    assert_eq!(embed_pending(&h.state).await.unwrap(), 1);
+
+    let after = call(&h.app, Method::GET, "/health", k, None).await.json();
+    assert_eq!(
+        after["embed_failed_rows"], 1,
+        "only the still-failing row is back"
+    );
+    assert_eq!(after["embed_failed"][0]["id"], ids[1].as_str());
+    assert_eq!(after["embedded_count"], 2);
     db.drop_db().await;
 }
 
