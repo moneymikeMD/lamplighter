@@ -131,7 +131,7 @@ fn embed_pending(embedder: &LocalEmbedder) -> usize {
     let limit = i64::from(BATCH.get());
     let rows: Vec<(String, String)> = Spi::connect(|client| {
         let table = client.select(
-            "SELECT id::text, title || E'\\n' || body FROM memories WHERE embedding IS NULL \
+            "SELECT id::text, title || E'\\n\\n' || body FROM memories WHERE embedding IS NULL \
              ORDER BY created_at LIMIT $1 FOR UPDATE SKIP LOCKED",
             None,
             &[limit.into()],
