@@ -41,7 +41,7 @@ get `{"hits":[],"warning":null}` instead of silence. A short, vague query such a
 coverage 0.09), because with two memories the inverse-document-frequency weights are near zero and the cosine floor is the only filter; phrase recall queries the way you would phrase a question about
 a past decision.
 
-Embedded mode supports only `store` and `recall`. For links, audit and export, use a server.
+Embedded mode supports only `store`, `recall` and `delete`. For links, audit and export, use a server.
 
 ## With a server
 

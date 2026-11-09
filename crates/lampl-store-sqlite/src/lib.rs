@@ -270,6 +270,30 @@ impl SqliteStore {
             .transpose()
     }
 
+    /// Permanently removes a memory, its full-text and vector rows, and every link to or from it; returns the number of links removed, or `None` if the id is unknown.
+    pub fn delete(&mut self, id: Uuid) -> Result<Option<u64>, StoreError> {
+        let tx = self.conn.transaction()?;
+        let rowid: Option<i64> = tx
+            .query_row(
+                "SELECT rowid FROM memories WHERE id = ?1",
+                [id.to_string()],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let Some(rowid) = rowid else {
+            return Ok(None);
+        };
+        let links = tx.execute(
+            "DELETE FROM links WHERE from_id = ?1 OR to_id = ?1",
+            [id.to_string()],
+        )?;
+        tx.execute("DELETE FROM memories_fts WHERE rowid = ?1", [rowid])?;
+        tx.execute("DELETE FROM memories_vec WHERE rowid = ?1", [rowid])?;
+        tx.execute("DELETE FROM memories WHERE rowid = ?1", [rowid])?;
+        tx.commit()?;
+        Ok(Some(u64::try_from(links).unwrap_or(u64::MAX)))
+    }
+
     pub fn link(
         &self,
         from_id: Uuid,

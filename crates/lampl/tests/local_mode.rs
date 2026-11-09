@@ -135,3 +135,37 @@ fn recall_json_prints_one_object_and_an_empty_recall_is_an_empty_hits_array() {
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(v, serde_json::json!({"hits": [], "warning": null}));
 }
+
+#[test]
+fn delete_in_local_mode_removes_the_memory_and_a_second_delete_fails() {
+    let d = tempfile::tempdir().unwrap();
+    assert!(lampl(d.path(), &["init", "--local"]).status.success());
+    let out = lampl(
+        d.path(),
+        &[
+            "store",
+            "--title",
+            "test row",
+            "--body",
+            "stored by mistake",
+            "--no-embed",
+        ],
+    );
+    assert!(out.status.success(), "{}", stderr(&out));
+    let stored: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let id = stored["id"].as_str().unwrap();
+
+    let out = lampl(d.path(), &["delete", id]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let deleted: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(deleted["id"], id);
+    assert_eq!(deleted["links_removed"], 0);
+
+    let out = lampl(d.path(), &["recall", "stored by mistake", "--no-embed"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(!String::from_utf8_lossy(&out.stdout).contains(id));
+
+    let out = lampl(d.path(), &["delete", id]);
+    assert!(!out.status.success());
+    assert!(stderr(&out).contains("not found"), "{}", stderr(&out));
+}

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! Client commands. `store` and `recall` follow the configured mode; the rest need a server and fail loudly without one.
+//! Client commands. `store`, `recall` and `delete` follow the configured mode; the rest need a server and fail loudly without one.
 
 mod audit;
 mod doctor;
@@ -22,7 +22,7 @@ fn server(what: &str) -> Result<Client, String> {
     match target()? {
         Target::Server(s) => Client::connect(&s),
         Target::Local => Err(format!(
-            "`lampl {what}` needs a server; local mode supports only store and recall"
+            "`lampl {what}` needs a server; local mode supports only store, recall and delete"
         )),
     }
 }
@@ -175,4 +175,20 @@ pub(crate) fn related(args: &RelatedArgs) -> Result<(), String> {
 pub(crate) fn related_items(id: Uuid) -> Result<Vec<Value>, String> {
     let out = server("related")?.get(&format!("/v1/memories/{id}/related"))?;
     Ok(out.as_array().cloned().unwrap_or_default())
+}
+
+#[derive(ClapArgs)]
+pub(crate) struct DeleteArgs {
+    id: Uuid,
+}
+
+pub(crate) fn delete(args: &DeleteArgs) -> Result<(), String> {
+    let out = match server_settings()? {
+        Some(settings) => {
+            Client::connect(&settings)?.delete(&format!("/v1/memories/{}", args.id))?
+        }
+        None => local::delete_value(args.id)?,
+    };
+    print(&out);
+    Ok(())
 }

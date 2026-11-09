@@ -4,7 +4,7 @@ use std::io;
 use std::sync::Arc;
 
 use axum::body::{Body, Bytes};
-use axum::extract::{FromRequest, Path, Query, State};
+use axum::extract::{Extension, FromRequest, Path, Query, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use chrono::{DateTime, Utc};
@@ -17,6 +17,7 @@ use sqlx::PgPool;
 use sqlx::error::DatabaseError;
 use uuid::Uuid;
 
+use super::auth::ClientName;
 use super::error::ApiError;
 use super::worker::embed_texts;
 use super::{API_VERSION, AppState};
@@ -147,6 +148,29 @@ pub(crate) async fn get_memory(
         .await?
         .map(|m| Json(m.into()))
         .ok_or_else(ApiError::not_found)
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct DeleteOut {
+    id: Uuid,
+    links_removed: u64,
+}
+
+/// Logs the id and the calling client, never the deleted text.
+pub(crate) async fn delete_memory(
+    State(state): State<Arc<AppState>>,
+    Extension(ClientName(client)): Extension<ClientName>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<DeleteOut>, ApiError> {
+    let links_removed =
+        state.store.delete(id).await?.ok_or_else(|| {
+            ApiError::new(StatusCode::NOT_FOUND, format!("memory {id} not found"))
+        })?;
+    if let Ok(mut f) = state.failed.lock() {
+        f.remove(&id);
+    }
+    tracing::info!(%id, %client, links_removed, "memory deleted");
+    Ok(Json(DeleteOut { id, links_removed }))
 }
 
 #[derive(Debug, Deserialize)]

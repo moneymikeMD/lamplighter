@@ -113,11 +113,12 @@ async fn fallback() -> Response {
 
 pub fn router(state: Arc<AppState>) -> Router {
     use handlers::{
-        create_link, export, get_memory, import, list_memories, recall, related, store_memory,
+        create_link, delete_memory, export, get_memory, import, list_memories, recall, related,
+        store_memory,
     };
     let v1 = Router::new()
         .route("/memories", post(store_memory).get(list_memories))
-        .route("/memories/{id}", get(get_memory))
+        .route("/memories/{id}", get(get_memory).delete(delete_memory))
         .route("/memories/{id}/related", get(related))
         .route("/recall", post(recall))
         .route("/links", post(create_link))

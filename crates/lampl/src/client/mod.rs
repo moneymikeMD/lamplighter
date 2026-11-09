@@ -204,6 +204,16 @@ impl Client {
         read_json(self.finish(resp)?)
     }
 
+    pub(crate) fn delete(&self, path: &str) -> Result<Value, String> {
+        let resp = self
+            .short
+            .delete(format!("{}{path}", self.base))
+            .header("Authorization", self.auth())
+            .call()
+            .map_err(|e| self.transport(&e))?;
+        read_json(self.finish(resp)?)
+    }
+
     /// Streams an NDJSON body from the server.
     pub(crate) fn stream(&self, path: &str) -> Result<Box<dyn std::io::Read + Send>, String> {
         let resp = self

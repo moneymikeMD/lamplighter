@@ -16,4 +16,4 @@ The tools use the same code as the CLI and the same configuration (`lampl init`)
 
 The `type` enums are generated at runtime from `MemoryType` and `LinkType` in `lampl-core`, so the schema cannot drift from what the store accepts. Unknown arguments are rejected.
 
-`recall` returns `{"hits": [...], "warning": ...}`; `warning` is set when the server's embedder is down and the result is full-text only. Export, import and audit are CLI-only.
+`recall` returns `{"hits": [...], "warning": ...}`; `warning` is set when the server's embedder is down and the result is full-text only. Export, import, audit and delete are CLI-only; delete is deliberately not an MCP tool, so an agent cannot remove memories on its own.

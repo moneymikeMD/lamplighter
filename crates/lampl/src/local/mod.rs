@@ -260,3 +260,11 @@ pub(crate) fn recall_hits(
         .collect();
     Ok((hits, warning))
 }
+
+pub(crate) fn delete_value(id: uuid::Uuid) -> Result<serde_json::Value, String> {
+    let links_removed = open_local()?
+        .delete(id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("memory {id} not found"))?;
+    Ok(serde_json::json!({"id": id, "links_removed": links_removed}))
+}

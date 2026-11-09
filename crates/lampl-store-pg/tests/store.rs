@@ -366,3 +366,53 @@ async fn default_floor_tests_capped_three_coverage_at_0_52() {
         ["common one", "common two", "rare"]
     );
 }
+
+#[tokio::test]
+async fn delete_removes_the_memory_and_its_links_but_not_its_neighbours() {
+    let Some(s) = store().await else { return };
+    let p = project();
+    let doomed = s
+        .store(new(
+            &p,
+            "leaked token",
+            "hunter2 secret value",
+            Some(axis(3)),
+        ))
+        .await
+        .unwrap();
+    let kept = s
+        .store(new(
+            &p,
+            "rotate token",
+            "rotate the leaked value",
+            Some(axis(4)),
+        ))
+        .await
+        .unwrap();
+    s.link(kept.id, doomed.id, LinkType::Solves, 1.0)
+        .await
+        .unwrap();
+    s.link(doomed.id, kept.id, LinkType::Causes, 1.0)
+        .await
+        .unwrap();
+
+    assert_eq!(s.delete(doomed.id).await.unwrap(), Some(2));
+    assert!(s.get(doomed.id).await.unwrap().is_none());
+    assert!(s.get(kept.id).await.unwrap().is_some());
+    assert!(s.related(kept.id).await.unwrap().is_empty());
+
+    let mut q = RecallQuery::new("hunter2 secret");
+    q.project = Some(p.clone());
+    q.embedding = Some(axis(3));
+    q.embedding_digest = Some("sha256:test".to_owned());
+    q.floor = Floor {
+        cosine: f64::NEG_INFINITY,
+        coverage: 0.0,
+        ..Floor::default()
+    };
+    let hits = s.recall(&q).await.unwrap();
+    assert!(hits.iter().all(|h| h.memory.id != doomed.id));
+
+    assert_eq!(s.delete(doomed.id).await.unwrap(), None);
+    assert_eq!(s.delete(Uuid::now_v7()).await.unwrap(), None);
+}
