@@ -463,7 +463,7 @@ mod url_tests {
     }
 
     #[test]
-    fn refuses_an_unparseable_url_with_the_socket_hint() {
+    fn refuses_an_unparsable_url_with_the_socket_hint() {
         let err = check_database_url("postgresql://mike@/lampl?host=/tmp").unwrap_err();
         assert!(
             err.contains("empty host") && err.contains("%2Ftmp"),
