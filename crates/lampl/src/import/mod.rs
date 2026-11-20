@@ -201,14 +201,11 @@ pub(crate) fn from_memorygraph(
         if title.trim().is_empty() {
             return Err(format!("memory {src_id} has neither title nor content"));
         }
-        let mut tags: Vec<String> = m["tags"]
-            .as_array()
-            .map(|a| {
-                a.iter()
-                    .filter_map(|t| t.as_str().map(str::to_owned))
-                    .collect()
-            })
-            .unwrap_or_default();
+        let mut tags: Vec<String> = m["tags"].as_array().map_or_else(Vec::new, |a| {
+            a.iter()
+                .filter_map(|t| t.as_str().map(str::to_owned))
+                .collect()
+        });
         tags.push(format!("memorygraph:{src_type}"));
         let created = DateTime::parse_from_rfc3339(m["created_at"].as_str().unwrap_or_default())
             .map_or(now, |t| t.with_timezone(&Utc));

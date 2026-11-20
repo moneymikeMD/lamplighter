@@ -109,8 +109,7 @@ async fn embed_batch(state: &AppState) -> Result<Batch, WorkerError> {
     let skip: Vec<Uuid> = state
         .failed
         .lock()
-        .map(|f| f.keys().copied().collect())
-        .unwrap_or_default();
+        .map_or_else(|_| Vec::new(), |f| f.keys().copied().collect());
     let rows = sqlx::query(
         "UPDATE memories SET embed_claimed_until = now() + make_interval(secs => $4) \
          WHERE id IN (SELECT id FROM memories \
