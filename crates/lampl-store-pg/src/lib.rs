@@ -113,16 +113,33 @@ fn check_dim(vector: &[f32]) -> Result<(), StoreError> {
 /// sqlx's `whoami` runs without its `std` feature, so a URL naming no user and no `PGUSER` yields `anonymous` on every platform.
 pub fn check_database_url(url: &str) -> Result<(), String> {
     const HINT: &str = "for a local socket use postgresql://<user>@%2Ftmp/lampl (Homebrew) or postgresql://<user>@%2Fvar%2Frun%2Fpostgresql/lampl (Debian, Ubuntu)";
-    let options: PgConnectOptions = url
+    let _: PgConnectOptions = url
         .parse()
         .map_err(|e: sqlx::Error| format!("invalid database URL: {e}; {HINT}"))?;
-    let user = options.get_username();
+    let user = url_user(url)
+        .or_else(|| std::env::var("PGUSER").ok())
+        .unwrap_or_default();
     if user.is_empty() || user == "anonymous" {
         return Err(format!(
             "database URL names no usable user (resolved to {user:?}); name the role in the URL; {HINT}"
         ));
     }
     Ok(())
+}
+
+/// The user a URL names in its authority or `user=` parameter; sqlx 0.9.1 and later default a missing one to the OS user.
+fn url_user(url: &str) -> Option<String> {
+    let rest = url.split_once("://").map_or(url, |(_, r)| r);
+    let (before_query, query) = rest.split_once('?').unwrap_or((rest, ""));
+    let authority = before_query.split('/').next().unwrap_or_default();
+    let from_authority = authority
+        .rsplit_once('@')
+        .map(|(info, _)| info.split(':').next().unwrap_or_default());
+    let from_query = query.split('&').find_map(|kv| kv.strip_prefix("user="));
+    from_authority
+        .filter(|u| !u.is_empty())
+        .or(from_query.filter(|u| !u.is_empty()))
+        .map(str::to_owned)
 }
 
 impl PgStore {
