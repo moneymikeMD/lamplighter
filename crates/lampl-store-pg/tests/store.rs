@@ -118,7 +118,7 @@ async fn superseded_memory_is_excluded_from_recall_but_still_reachable() {
         .unwrap();
 
     let mut q = RecallQuery::new("deploy script path");
-    q.project = Some(p.clone());
+    q.projects = vec![p.clone()];
     q.embedding = Some(axis(1));
     q.embedding_digest = Some("sha256:test".to_owned());
     let before: Vec<_> = s
@@ -170,13 +170,13 @@ async fn unrelated_query_returns_nothing_through_the_floor() {
     .unwrap();
 
     let mut q = RecallQuery::new("quarterly tax filing deadline");
-    q.project = Some(p.clone());
+    q.projects = vec![p.clone()];
     q.embedding = Some(axis(5));
     q.embedding_digest = Some("sha256:test".to_owned());
     assert!(s.recall(&q).await.unwrap().is_empty());
 
     let mut relevant = RecallQuery::new("autovacuum scale factor");
-    relevant.project = Some(p);
+    relevant.projects = vec![p];
     relevant.embedding = Some(axis(3));
     relevant.embedding_digest = Some("sha256:test".to_owned());
     let hits = s.recall(&relevant).await.unwrap();
@@ -212,7 +212,7 @@ async fn survivors_order_by_cosine_plus_coverage_on_a_hand_built_fixture() {
         .unwrap();
 
     let mut q = RecallQuery::new("alpha beta gamma");
-    q.project = Some(p);
+    q.projects = vec![p];
     q.embedding = Some(axis(6));
     q.embedding_digest = Some("sha256:test".to_owned());
     q.floor.cosine = 0.0;
@@ -293,7 +293,7 @@ async fn stop_words_do_not_count_against_coverage() {
         .await
         .unwrap();
     let mut q = RecallQuery::new("the docker daemon to restart on a");
-    q.project = Some(p);
+    q.projects = vec![p];
     q.floor.cosine = 0.0;
     q.floor.coverage = 0.0;
     let hits = s.recall(&q).await.unwrap();
@@ -339,7 +339,7 @@ async fn default_floor_tests_capped_three_coverage_at_0_52() {
             .unwrap();
     }
     let mut q = RecallQuery::new(words.join(" "));
-    q.project = Some(long);
+    q.projects = vec![long];
     assert_eq!(titles(&s.recall(&q).await.unwrap()), ["three of nine"]);
     q.floor = pre_lamp22_floor();
     assert!(s.recall(&q).await.unwrap().is_empty());
@@ -358,7 +358,7 @@ async fn default_floor_tests_capped_three_coverage_at_0_52() {
             .unwrap();
     }
     let mut q = RecallQuery::new("kiwi comet");
-    q.project = Some(short);
+    q.projects = vec![short];
     assert_eq!(titles(&s.recall(&q).await.unwrap()), ["rare"]);
     q.floor = pre_lamp22_floor();
     assert_eq!(
@@ -402,7 +402,7 @@ async fn delete_removes_the_memory_and_its_links_but_not_its_neighbours() {
     assert!(s.related(kept.id).await.unwrap().is_empty());
 
     let mut q = RecallQuery::new("hunter2 secret");
-    q.project = Some(p.clone());
+    q.projects = vec![p.clone()];
     q.embedding = Some(axis(3));
     q.embedding_digest = Some("sha256:test".to_owned());
     q.floor = Floor {
@@ -415,4 +415,44 @@ async fn delete_removes_the_memory_and_its_links_but_not_its_neighbours() {
 
     assert_eq!(s.delete(doomed.id).await.unwrap(), None);
     assert_eq!(s.delete(Uuid::now_v7()).await.unwrap(), None);
+}
+
+#[tokio::test]
+async fn recall_searches_only_the_listed_projects() {
+    let Some(s) = store().await else { return };
+    let (own, shared, other) = (project(), project(), project());
+    let mut ids = Vec::new();
+    for p in [&own, &shared, &other] {
+        ids.push(
+            s.store(new(
+                p,
+                "backup rotation schedule",
+                "backups rotate nightly",
+                Some(axis(4)),
+            ))
+            .await
+            .unwrap()
+            .id,
+        );
+    }
+    let recall = async |projects: Vec<String>| {
+        let mut q = RecallQuery::new("backup rotation schedule");
+        q.projects = projects;
+        q.embedding = Some(axis(4));
+        q.embedding_digest = Some("sha256:test".to_owned());
+        let mut got: Vec<_> = s
+            .recall(&q)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|h| h.memory.id)
+            .filter(|id| ids.contains(id))
+            .collect();
+        got.sort();
+        got
+    };
+    let mut want = vec![ids[0], ids[1]];
+    want.sort();
+    assert_eq!(recall(vec![own.clone(), shared.clone()]).await, want);
+    assert_eq!(recall(vec![own.clone()]).await, vec![ids[0]]);
 }

@@ -93,7 +93,9 @@ Memories in id order (id is time-ordered), all of them including superseded. `li
 
 ### `POST /v1/recall`
 
-Body: `query`, optional `project`, `limit` (1..=100, default 10), `embed_timeout_ms` (give up embedding the query after this long and answer full-text only; additive, the API version is unchanged). Returns `{"mode": "hybrid"|"full-text", "hits": [{"memory", "score", "cosine", "coverage"}]}`. Hybrid full-text plus vector ranking (the vector arm compares only rows embedded by the current model digest; rows from another model fall back to full-text until re-embedded) with reciprocal-rank fusion and the relevance floor; superseded memories are excluded. `mode` is `full-text` when the embedder is unavailable, and rows not yet embedded are still found through full-text.
+Body: `query`, optional `project` (searches that project plus the server's global projects, `general` unless `--global-project` says otherwise), `strict` (default `false`; with `project`, search that project alone), `limit` (1..=100, default 10), `embed_timeout_ms` (give up embedding the query after this long and answer full-text only; additive, the API version is unchanged). Returns `{"mode": "hybrid"|"full-text", "hits": [{"memory", "score", "cosine", "coverage"}]}`. Hybrid full-text plus vector ranking (the vector arm compares only rows embedded by the current model digest; rows from another model fall back to full-text until re-embedded) with reciprocal-rank fusion and the relevance floor; superseded memories are excluded. `mode` is `full-text` when the embedder is unavailable, and rows not yet embedded are still found through full-text.
+
+`strict` and the global projects were added without an API version bump: a request without `project` is unchanged, and one with it gains the global projects' memories in its candidates.
 
 ### `POST /v1/links`
 

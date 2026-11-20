@@ -10,6 +10,7 @@ Every setting, with where it is read. Verified against `crates/lampl/src` at 0.1
 | `LAMPL_API_KEY` | | API key for server mode. Wins over `api_key_file` |
 | `LAMPL_CONFIG_DIR` | platform config dir + `lampl` | Where `config.toml` lives |
 | `LAMPL_DATA_DIR` | platform data dir + `lampl` | Where the embedded `lampl.db` lives |
+| `LAMPL_GLOBAL_PROJECTS` | `general` | Local mode: comma-separated projects every `recall --project` also searches; empty for none. In server mode the server's list applies |
 | `LAMPL_EMBED_TIMEOUT_MS` | none | Abandon embedding a query after this long and recall by full text (local mode and `recall`) |
 | `LAMPL_FROM_POSTGRES_URL` | | memorygraph database URL for `lampl import --from-postgres`; keeps the password out of argv |
 
@@ -27,6 +28,7 @@ Every setting, with where it is read. Verified against `crates/lampl/src` at 0.1
 | | `LAMPL_EMBED_API_KEY` | none | Bearer token for the endpoint |
 | `--min-coverage` | | `0.95` | `/health` reports degraded below this vector coverage (0 to 1) |
 | `--embed-interval-secs` | | `5` | Seconds between background embedding sweeps |
+| `--global-project` (repeatable) | `LAMPL_GLOBAL_PROJECTS` (comma-separated) | `general` | Projects every `recall --project` also searches; `--global-project ''` for none |
 | | `RUST_LOG` | `info` | `tracing` filter for server logs |
 | | `NO_COLOR` | unset | Any non-empty value forces plain log lines |
 
@@ -43,6 +45,7 @@ Every setting, with where it is read. Verified against `crates/lampl/src` at 0.1
 | `LAMPL_PUSH_RECALL_CAP` | `3.5` | Outer kill for the recall process, seconds |
 | `LAMPL_PUSH_EMBED_MS` | `1500` | Embed timeout passed to `lampl recall` |
 | `LAMPL_PUSH_BREAKER` | `300` | Circuit-breaker window, seconds |
+| `LAMPL_PROJECT` | repo name | Project the push hook recalls with; empty recalls unscoped |
 | `LAMPL_PUSH_SKIP_WORDS` | `3` | Skip prompts with this many content words or fewer; `0` disables |
 | `LAMPL_PUSH_STATE`, `LAMPL_PUSH_LOG` | temp dir, off | Session state directory; JSON-lines decision log |
 

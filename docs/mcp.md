@@ -9,7 +9,7 @@ The tools use the same code as the CLI and the same configuration (`lampl init`)
 | Tool | Arguments | Mode |
 | --- | --- | --- |
 | `store` | `title`, `body`; optional `type` (enum), `tags`, `project`, `importance` | server or local |
-| `recall` | `query`; optional `project`, `limit` | server or local |
+| `recall` | `query`; optional `project` (plus the global projects), `strict` (that project alone), `limit` | server or local |
 | `get` | `id` | server |
 | `link` | `from`, `to`, `type` (enum); optional `strength` | server |
 | `related` | `id` | server |

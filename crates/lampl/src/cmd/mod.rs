@@ -99,6 +99,9 @@ pub(crate) fn recall_hits(args: &local::RecallArgs) -> Result<RecallOutput, Stri
     }
     if let Some(p) = &args.project {
         body["project"] = json!(p);
+        if args.strict {
+            body["strict"] = json!(true);
+        }
     }
     let out = client.post("/v1/recall", &body)?;
     Ok(RecallOutput {

@@ -43,8 +43,9 @@ Links need a server. `related ID` returns links in both directions, labelled `ou
 
 ## Projects and tags
 
-`--project` partitions memories; recall without `--project` searches all of them. Tags are for people and for filters in your own tooling: name the project, the component and the kind of change. See
-[best-practices.md](best-practices.md).
+`--project` partitions memories. Recall without `--project` searches all of them. `recall --project P` searches P plus the global projects: memories that apply to every project, kept under
+`general` unless the server is started with other `--global-project` values. `--strict` searches P alone. `export`, `audit` and `list` always match P exactly. Tags are for people and for filters in your
+own tooling: name the project, the component and the kind of change. See [best-practices.md](best-practices.md).
 
 ## How a memory is found
 

@@ -215,6 +215,9 @@ pub(crate) async fn list_memories(
 pub(crate) struct RecallBody {
     query: String,
     project: Option<String>,
+    /// Search `project` alone, without the server's global projects.
+    #[serde(default)]
+    strict: bool,
     limit: Option<usize>,
     /// Past this the query embedding is abandoned and the recall is full-text only.
     embed_timeout_ms: Option<u64>,
@@ -276,7 +279,8 @@ pub(crate) async fn recall(
     Json(b): Json<RecallBody>,
 ) -> Result<Json<RecallOut>, ApiError> {
     let mut q = RecallQuery::new(b.query.clone());
-    q.project = b.project;
+    q.projects =
+        lampl_core::recall_projects(b.project.as_deref(), b.strict, &state.global_projects());
     q.limit = b.limit.unwrap_or(10).clamp(1, MAX_LIMIT);
     if let Some(f) = floor_override() {
         q.floor = f;

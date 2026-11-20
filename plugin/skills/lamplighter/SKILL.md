@@ -24,7 +24,7 @@ The plugin pushes matching memories into the session at start, on each prompt an
 
 ## How to store
 
-One fact per memory. `type` is one of `fact`, `decision`, `problem`, `fix`, `procedure`, `gotcha`. Give a specific title, a body that stands alone, `tags` naming the project, the component and the kind of change, and an `importance` between 0 and 1.
+One fact per memory. `type` is one of `fact`, `decision`, `problem`, `fix`, `procedure`, `gotcha`. Give a specific title, a body that stands alone, `project` set to the repo it is about (or `general` when it holds for every project), `tags` naming the project, the component and the kind of change, and an `importance` between 0 and 1.
 
 Store the problem first, then the fix, then link the fix to the problem with `SOLVES` (strength 0 to 1).
 

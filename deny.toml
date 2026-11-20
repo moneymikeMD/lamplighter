@@ -4,6 +4,7 @@ all-features = true
 [advisories]
 ignore = [
     { id = "RUSTSEC-2024-0436", reason = "paste is unmaintained, not vulnerable; transitive via candle-core's gemm, revisit when candle drops it" },
+    { id = "RUSTSEC-2026-0543", reason = "chrono is unmaintained, not vulnerable, and has no successor release; used only for timestamp parsing and formatting, revisit when a maintained fork or replacement exists" },
 ]
 
 [licenses]

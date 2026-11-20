@@ -46,7 +46,8 @@ pub(super) fn definitions() -> Vec<Tool> {
                 "type": "object",
                 "properties": {
                     "query": {"type": "string"},
-                    "project": {"type": "string"},
+                    "project": {"type": "string", "description": "Search this project plus the projects shared by every project (default `general`)"},
+                    "strict": {"type": "boolean", "default": false, "description": "With project, search that project alone"},
                     "limit": {"type": "integer", "minimum": 1, "default": 10}
                 },
                 "required": ["query"],
@@ -123,6 +124,8 @@ fn default_importance() -> f32 {
 struct RecallIn {
     query: String,
     project: Option<String>,
+    #[serde(default)]
+    strict: bool,
     #[serde(default = "default_limit")]
     limit: usize,
 }
@@ -172,7 +175,9 @@ pub(super) fn call(name: &str, args: Value) -> Result<Value, String> {
         }
         "recall" => {
             let a: RecallIn = parse(name, args)?;
-            let out = cmd::recall_hits(&local::RecallArgs::new(a.query, a.project, a.limit))?;
+            let out = cmd::recall_hits(&local::RecallArgs::new(
+                a.query, a.project, a.strict, a.limit,
+            ))?;
             Ok(json!({"hits": out.hits, "warning": out.warning}))
         }
         "get" => cmd::get_value(parse::<IdIn>(name, args)?.id),

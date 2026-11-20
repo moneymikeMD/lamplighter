@@ -210,6 +210,35 @@ def main():
         check("B2: hook passes the embed timeout to lampl", "--embed-timeout-ms 1500" in open(rig.calls).read())
 
         rig.clear()
+        rig.fire("hits", prompt=prompt)
+        check("outside a git repo the recall is unscoped", "--project" not in open(rig.calls).read())
+
+        rig.clear()
+        repo = os.path.join(rig.root, "work", "checkout")
+        os.makedirs(repo)
+        subprocess.run(["git", "init", "-q", repo], check=True)
+        subprocess.run(["git", "-C", repo, "remote", "add", "origin", "git@github.com:someone/homelab.git"],
+                       check=True)
+        rig.fire("hits", prompt=prompt, cwd=os.path.join(repo))
+        check("inside a repo the recall is scoped to the origin's name", "--project homelab" in open(rig.calls).read(),
+              open(rig.calls).read())
+
+        rig.clear()
+        subprocess.run(["git", "-C", repo, "remote", "remove", "origin"], check=True)
+        rig.fire("hits", prompt=prompt, cwd=repo)
+        check("a repo with no origin is scoped to its directory name", "--project checkout" in open(rig.calls).read(),
+              open(rig.calls).read())
+
+        rig.clear()
+        rig.fire("hits", prompt=prompt, cwd=repo, env={"LAMPL_PROJECT": "dotfiles"})
+        check("LAMPL_PROJECT overrides the repo", "--project dotfiles" in open(rig.calls).read(), open(rig.calls).read())
+
+        rig.clear()
+        rig.fire("hits", prompt=prompt, cwd=repo, env={"LAMPL_PROJECT": ""})
+        check("an empty LAMPL_PROJECT recalls unscoped", "--project" not in open(rig.calls).read(),
+              open(rig.calls).read())
+
+        rig.clear()
         git = os.path.join(rig.bin, "git")
         with open(git, "w") as fh:
             fh.write("#!/bin/sh\nsleep 10\n")

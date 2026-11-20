@@ -17,7 +17,7 @@ The `lampl` client talks to `lampl serve` and fails closed: an unreachable serve
 | Command | What it does |
 | --- | --- |
 | `store --title T --body B [--type fact] [--tags a,b] [--project P] [--importance 0.5]` | Store a memory; the server embeds it in the background |
-| `recall QUERY` or `recall --query QUERY [--project P] [--limit N] [--json] [--embed-timeout-ms MS]` | One JSON hit per line; warns on stderr when the server could only do full-text. `--json` prints a single `{"hits": [...], "warning": null}` object instead, so an empty recall is `{"hits": []}` rather than no output. `--embed-timeout-ms` (or `LAMPL_EMBED_TIMEOUT_MS`) abandons embedding the query after that long and recalls by full text with a warning |
+| `recall QUERY` or `recall --query QUERY [--project P [--strict]] [--limit N] [--json] [--embed-timeout-ms MS]` | One JSON hit per line. `--project P` searches P plus the global projects (the server's `--global-project` list; in local mode `LAMPL_GLOBAL_PROJECTS`, default `general`), and `--strict` searches P alone; warns on stderr when the server could only do full-text. `--json` prints a single `{"hits": [...], "warning": null}` object instead, so an empty recall is `{"hits": []}` rather than no output. `--embed-timeout-ms` (or `LAMPL_EMBED_TIMEOUT_MS`) abandons embedding the query after that long and recalls by full text with a warning |
 | `get ID` / `related ID` | Read a memory, or its links in both directions |
 | `link FROM TO TYPE [--strength 1.0]` | `SUPERSEDES`, `SOLVES`, `CAUSES`, `CONTRADICTS` |
 | `delete ID` | Permanently remove a memory and every link to or from it; prints `{"id", "links_removed"}`. Unknown id: non-zero exit, `not found`. See below |
