@@ -2033,6 +2033,7 @@ dependencies = [
  "chrono",
  "lampl-core",
  "rusqlite",
+ "serde_json",
  "sqlite-vec",
  "tempfile",
  "thiserror 2.0.21",

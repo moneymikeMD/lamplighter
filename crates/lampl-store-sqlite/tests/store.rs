@@ -103,7 +103,7 @@ fn superseded_memory_is_excluded_from_recall_but_still_reachable() {
         .unwrap();
 
     let mut q = RecallQuery::new("deploy script path");
-    q.project = Some(p.clone());
+    q.projects = vec![p.clone()];
     q.embedding = Some(axis(1));
     let before: Vec<_> = s
         .recall(&q)
@@ -148,12 +148,12 @@ fn unrelated_query_returns_nothing_through_the_floor() {
     .unwrap();
 
     let mut q = RecallQuery::new("quarterly tax filing deadline");
-    q.project = Some(p.clone());
+    q.projects = vec![p.clone()];
     q.embedding = Some(axis(5));
     assert!(s.recall(&q).unwrap().is_empty());
 
     let mut relevant = RecallQuery::new("autovacuum scale factor");
-    relevant.project = Some(p);
+    relevant.projects = vec![p];
     relevant.embedding = Some(axis(3));
     let hits = s.recall(&relevant).unwrap();
     assert_eq!(hits.len(), 1);
@@ -185,7 +185,7 @@ fn survivors_order_by_cosine_plus_coverage_on_a_hand_built_fixture() {
         .unwrap();
 
     let mut q = RecallQuery::new("alpha beta gamma");
-    q.project = Some(p);
+    q.projects = vec![p];
     q.embedding = Some(axis(6));
     q.floor.cosine = 0.0;
     q.floor.coverage = 0.0;
@@ -276,7 +276,7 @@ fn stop_words_do_not_count_against_coverage() {
         ))
         .unwrap();
     let mut q = RecallQuery::new("the docker daemon to restart on a");
-    q.project = Some(p);
+    q.projects = vec![p];
     q.floor.cosine = 0.0;
     q.floor.coverage = 0.0;
     let hits = s.recall(&q).unwrap();
@@ -318,7 +318,7 @@ fn default_floor_tests_capped_three_coverage_at_0_52() {
             .unwrap();
     }
     let mut q = RecallQuery::new(words.join(" "));
-    q.project = Some(long);
+    q.projects = vec![long];
     assert_eq!(titles(&s.recall(&q).unwrap()), ["three of nine"]);
     q.floor = pre_lamp22_floor();
     assert!(s.recall(&q).unwrap().is_empty());
@@ -332,7 +332,7 @@ fn default_floor_tests_capped_three_coverage_at_0_52() {
             .unwrap();
     }
     let mut q = RecallQuery::new("kiwi comet");
-    q.project = Some(short);
+    q.projects = vec![short];
     assert_eq!(titles(&s.recall(&q).unwrap()), ["rare"]);
     q.floor = pre_lamp22_floor();
     assert_eq!(
@@ -370,7 +370,7 @@ fn delete_removes_the_memory_its_index_rows_and_its_links_but_not_its_neighbours
     assert!(s.related(kept.id).unwrap().is_empty());
 
     let mut q = RecallQuery::new("hunter2 secret");
-    q.project = Some(p.clone());
+    q.projects = vec![p.clone()];
     q.embedding = Some(axis(3));
     q.floor = Floor {
         cosine: f64::NEG_INFINITY,
@@ -414,4 +414,43 @@ fn delete_leaves_no_full_text_or_vector_row_behind() {
         ),
         (0, 0, 0)
     );
+}
+
+#[test]
+fn recall_searches_only_the_listed_projects() {
+    let mut s = store();
+    let (own, shared, other) = (project(), project(), project());
+    let mut ids = Vec::new();
+    for p in [&own, &shared, &other] {
+        ids.push(
+            s.store(new(
+                p,
+                "backup rotation schedule",
+                "backups rotate nightly",
+                Some(axis(4)),
+            ))
+            .unwrap()
+            .id,
+        );
+    }
+    let recall = |s: &SqliteStore, projects: Vec<String>| {
+        let mut q = RecallQuery::new("backup rotation schedule");
+        q.projects = projects;
+        q.embedding = Some(axis(4));
+        let mut got: Vec<_> = s
+            .recall(&q)
+            .unwrap()
+            .into_iter()
+            .map(|h| h.memory.id)
+            .collect();
+        got.sort();
+        got
+    };
+    let mut want = vec![ids[0], ids[1]];
+    want.sort();
+    assert_eq!(recall(&s, vec![own.clone(), shared.clone()]), want);
+    assert_eq!(recall(&s, vec![own.clone()]), vec![ids[0]]);
+    let mut all = ids.clone();
+    all.sort();
+    assert_eq!(recall(&s, Vec::new()), all);
 }

@@ -159,19 +159,48 @@ def text_of(value):
     return ""
 
 
-def session_query(cwd, deadline):
+_GIT_READERS = {}
+
+
+def git_reader(cwd, deadline):
+    """One memoised `git -C cwd` reader per cwd, sharing a single GIT_BUDGET across every call this run."""
+    if cwd in _GIT_READERS:
+        return _GIT_READERS[cwd]
     git_deadline = Deadline(min(GIT_BUDGET, deadline.left()))
+    seen = {}
 
     def git(*args):
-        status, out, _ = run(["git", "-C", cwd, *args], git_deadline.left())
-        return out.strip() if status == "ok" else ""
+        if args not in seen:
+            status, out, _ = run(["git", "-C", cwd, *args], git_deadline.left())
+            seen[args] = out.strip() if status == "ok" else ""
+        return seen[args]
 
-    url = git("remote", "get-url", "origin")
+    _GIT_READERS[cwd] = git
+    return git
+
+
+def repo_name(git):
+    """The origin remote's repository name, else the work tree's directory name, else "" outside a git repo."""
     top = git("rev-parse", "--show-toplevel")
-    branch = git("rev-parse", "--abbrev-ref", "HEAD")
+    if not top:
+        return ""
+    url = git("remote", "get-url", "origin")
     repo = re.sub(r"\.git$", "", url.rstrip("/").rsplit("/", 1)[-1].rsplit(":", 1)[-1]) if url else ""
-    repo = repo or os.path.basename(top or cwd.rstrip("/"))
-    return " ".join(p for p in (repo, branch if branch != "HEAD" else "") if p)
+    return repo or os.path.basename(top.rstrip("/"))
+
+
+def session_project(cwd, deadline):
+    """`LAMPL_PROJECT` when set (empty means unscoped), else the session's repo name, else None outside a git repo."""
+    if "LAMPL_PROJECT" in os.environ:
+        return os.environ["LAMPL_PROJECT"].strip() or None
+    return repo_name(git_reader(cwd, deadline)) or None
+
+
+def session_query(cwd, deadline):
+    git = git_reader(cwd, deadline)
+    repo = repo_name(git) or os.path.basename(cwd.rstrip("/"))
+    branch = git("rev-parse", "--abbrev-ref", "HEAD")
+    return " ".join(p for p in (repo, branch if branch not in ("HEAD", "") else "") if p)
 
 
 class State:
@@ -335,14 +364,18 @@ def main():
     if event != "SessionStart" and digest in state.seen["q"]:
         log({"event": event, "outcome": "repeat"})
         return
+    project = session_project(cwd, deadline)
     budget = min(deadline.left(), env_float("LAMPL_PUSH_RECALL_CAP", RECALL_CAP))
     record = {"event": event, "query_chars": len(query)}
     if budget <= 0:
         log(dict(record, outcome="budget"))
         return
     embed_ms = str(env_int("LAMPL_PUSH_EMBED_MS", EMBED_TIMEOUT_MS))
-    status, out, err = run(["lampl", "recall", "--query", query, "--limit", str(LIMIT), "--embed-timeout-ms",
-                            embed_ms, "--json"], budget, cwd)
+    argv = ["lampl", "recall", "--query", query, "--limit", str(LIMIT), "--embed-timeout-ms", embed_ms, "--json"]
+    if project:
+        argv += ["--project", project]
+        record["project"] = project
+    status, out, err = run(argv, budget, cwd)
     parsed = parse_hits(out) if status == "ok" else None
     if parsed is None:
         if status == "ok":

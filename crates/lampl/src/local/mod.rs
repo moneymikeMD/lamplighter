@@ -55,8 +55,12 @@ pub(crate) struct RecallArgs {
     /// The query, as a flag
     #[arg(long = "query", value_name = "TEXT")]
     query_flag: Option<String>,
+    /// Search this project plus the global projects (env `LAMPL_GLOBAL_PROJECTS`, default `general`; in server mode the server's own list)
     #[arg(long)]
     pub(crate) project: Option<String>,
+    /// With --project, search that project alone
+    #[arg(long, requires = "project")]
+    pub(crate) strict: bool,
     #[arg(long, default_value_t = 10)]
     pub(crate) limit: usize,
     /// Skip embedding; recall by full text only
@@ -71,11 +75,12 @@ pub(crate) struct RecallArgs {
 }
 
 impl RecallArgs {
-    pub(crate) fn new(query: String, project: Option<String>, limit: usize) -> Self {
+    pub(crate) fn new(query: String, project: Option<String>, strict: bool, limit: usize) -> Self {
         Self {
             query: Some(query),
             query_flag: None,
             project,
+            strict,
             limit,
             no_embed: false,
             json: false,
@@ -226,7 +231,11 @@ pub(crate) fn recall_hits(
 ) -> Result<(Vec<serde_json::Value>, Option<&'static str>), String> {
     let db = open_local()?;
     let mut q = RecallQuery::new(args.text());
-    q.project.clone_from(&args.project);
+    q.projects = lampl_core::recall_projects(
+        args.project.as_deref(),
+        args.strict,
+        &lampl_core::global_projects_from_env(),
+    );
     q.limit = args.limit;
     let mut warning = None;
     if !args.no_embed {

@@ -18,7 +18,7 @@ use uuid::Uuid;
 const CANDIDATES: i64 = 50;
 const SCHEMA_VERSION: i64 = 1;
 const MEMORY_COLUMNS: &str = "m.id, m.memory_type, m.title, m.body, m.tags, m.project, m.importance, m.created_at, m.updated_at, m.embedding_model, m.embedding_digest";
-const ACTIVE: &str = "NOT EXISTS (SELECT 1 FROM links s WHERE s.to_id = m.id AND s.link_type = 'SUPERSEDES') AND (?1 IS NULL OR m.project = ?1)";
+const ACTIVE: &str = "NOT EXISTS (SELECT 1 FROM links s WHERE s.to_id = m.id AND s.link_type = 'SUPERSEDES') AND (json_array_length(?1) = 0 OR m.project IN (SELECT value FROM json_each(?1)))";
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
@@ -44,9 +44,14 @@ impl From<lampl_core::ParseError> for StoreError {
 pub struct RecallQuery {
     pub text: String,
     pub embedding: Option<Vec<f32>>,
-    pub project: Option<String>,
+    /// Projects to search; empty searches the whole store.
+    pub projects: Vec<String>,
     pub limit: usize,
     pub floor: Floor,
+}
+
+fn projects_json(projects: &[String]) -> String {
+    serde_json::to_string(projects).unwrap_or_else(|_| "[]".to_owned())
 }
 
 impl RecallQuery {
@@ -54,7 +59,7 @@ impl RecallQuery {
         RecallQuery {
             text: text.into(),
             embedding: None,
-            project: None,
+            projects: Vec::new(),
             limit: 10,
             floor: Floor::default(),
         }
@@ -382,6 +387,7 @@ impl SqliteStore {
             check_dim(v)?;
         }
 
+        let scope = projects_json(&q.projects);
         let mut rowid_ids: HashMap<i64, Uuid> = HashMap::new();
         let mut fts_ids: Vec<Uuid> = Vec::new();
         if !terms.is_empty() {
@@ -390,7 +396,7 @@ impl SqliteStore {
                  WHERE memories_fts MATCH ?2 AND {ACTIVE} ORDER BY bm25(memories_fts), m.rowid LIMIT ?3"
             );
             let mut stmt = self.conn.prepare(&sql)?;
-            let rows = stmt.query_map(params![q.project, fts_match(&terms), CANDIDATES], |r| {
+            let rows = stmt.query_map(params![scope, fts_match(&terms), CANDIDATES], |r| {
                 Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?))
             })?;
             for r in rows {
@@ -410,7 +416,7 @@ impl SqliteStore {
                  JOIN memories_vec v ON v.rowid = m.rowid WHERE {ACTIVE} ORDER BY d, m.rowid LIMIT ?3"
             );
             let mut stmt = self.conn.prepare(&sql)?;
-            let rows = stmt.query_map(params![q.project, vec_blob(v), CANDIDATES], |r| {
+            let rows = stmt.query_map(params![scope, vec_blob(v), CANDIDATES], |r| {
                 Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?))
             })?;
             for r in rows {
@@ -427,7 +433,7 @@ impl SqliteStore {
             return Ok(Vec::new());
         }
         let ids: Vec<Uuid> = fused.iter().map(|(id, _)| *id).collect();
-        let coverage = self.coverage(&terms, &ids, q.project.as_deref(), q.floor.coverage_norm)?;
+        let coverage = self.coverage(&terms, &ids, &scope, q.floor.coverage_norm)?;
 
         let mut ranked: Vec<(Uuid, f64, Option<f64>, f64)> = Vec::new();
         for (id, score) in fused {
@@ -460,28 +466,28 @@ impl SqliteStore {
         &self,
         terms: &[String],
         ids: &[Uuid],
-        project: Option<&str>,
+        scope: &str,
         norm: CoverageNorm,
     ) -> Result<HashMap<Uuid, (f64, f64)>, StoreError> {
         if terms.is_empty() {
             return Ok(HashMap::new());
         }
         let total: i64 = self.conn.query_row(
-            "SELECT count(*) FROM memories WHERE ?1 IS NULL OR project = ?1",
-            [project],
+            "SELECT count(*) FROM memories m WHERE json_array_length(?1) = 0 OR m.project IN (SELECT value FROM json_each(?1))",
+            [scope],
             |r| r.get(0),
         )?;
         let term_ids_sql = "SELECT m.id FROM memories_fts f JOIN memories m ON m.rowid = f.rowid \
-                            WHERE memories_fts MATCH ?2 AND (?1 IS NULL OR m.project = ?1)";
+                            WHERE memories_fts MATCH ?2 AND (json_array_length(?1) = 0 OR m.project IN (SELECT value FROM json_each(?1)))";
         let mut term_idf = Vec::new();
         let mut matches: HashMap<Uuid, HashSet<String>> = HashMap::new();
         let id_set: HashSet<Uuid> = ids.iter().copied().collect();
         for term in terms {
             let mut stmt = self.conn.prepare(term_ids_sql)?;
-            let rows = stmt.query_map(
-                params![project, fts_match(std::slice::from_ref(term))],
-                |r| r.get::<_, String>(0),
-            )?;
+            let rows = stmt
+                .query_map(params![scope, fts_match(std::slice::from_ref(term))], |r| {
+                    r.get::<_, String>(0)
+                })?;
             let mut df = 0u64;
             for r in rows {
                 df += 1;

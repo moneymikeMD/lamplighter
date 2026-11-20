@@ -1189,3 +1189,50 @@ async fn pg_the_worker_embeds_title_a_blank_line_then_body() {
     );
     db.drop_db().await;
 }
+
+#[tokio::test]
+async fn pg_scoped_recall_adds_the_global_projects_unless_strict() {
+    let Some(db) = TestDb::create().await else {
+        return;
+    };
+    let h = harness(&db, FakeEmbedder::new(false)).await;
+    let k = Some(h.key.as_str());
+    for project in ["homelab", "general", "mailkey"] {
+        let mut m = memory("zebra crossing rotation", "zebra crossing rotation notes");
+        m["project"] = json!(project);
+        let r = call(&h.app, Method::POST, "/v1/memories", k, Some(m)).await;
+        assert_eq!(r.status, StatusCode::CREATED);
+    }
+    let projects = |body: Value| async {
+        let r = call(&h.app, Method::POST, "/v1/recall", k, Some(body)).await;
+        assert_eq!(r.status, StatusCode::OK);
+        let mut got: Vec<String> = r.json()["hits"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|hit| hit["memory"]["project"].as_str().unwrap().to_owned())
+            .collect();
+        got.sort();
+        got
+    };
+    let q = "zebra crossing rotation";
+    assert_eq!(
+        projects(json!({"query": q, "project": "homelab"})).await,
+        ["general", "homelab"]
+    );
+    assert_eq!(
+        projects(json!({"query": q, "project": "homelab", "strict": true})).await,
+        ["homelab"]
+    );
+    assert_eq!(
+        projects(json!({"query": q})).await,
+        ["general", "homelab", "mailkey"]
+    );
+    h.state.set_global_projects(Vec::new());
+    assert_eq!(
+        projects(json!({"query": q, "project": "homelab"})).await,
+        ["homelab"],
+        "with no global projects configured a scoped recall is exact"
+    );
+    db.drop_db().await;
+}

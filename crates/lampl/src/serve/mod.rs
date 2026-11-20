@@ -64,6 +64,7 @@ pub struct AppState {
     pub(crate) min_coverage: f64,
     pub(crate) failed: std::sync::Mutex<std::collections::HashMap<uuid::Uuid, worker::FailedRow>>,
     pub(crate) last_retry: std::sync::Mutex<std::time::Instant>,
+    pub(crate) global_projects: std::sync::RwLock<Vec<String>>,
 }
 
 impl std::fmt::Debug for AppState {
@@ -93,12 +94,33 @@ impl AppState {
             min_coverage,
             failed: std::sync::Mutex::default(),
             last_retry: std::sync::Mutex::new(std::time::Instant::now()),
+            global_projects: std::sync::RwLock::new(
+                lampl_core::DEFAULT_GLOBAL_PROJECTS
+                    .iter()
+                    .map(|s| (*s).to_owned())
+                    .collect(),
+            ),
         })
     }
 
     /// Records the endpoint embedder's input cut (`tokens:512` or `chars:1500`) for `/health`; set once, and left unset in in-process mode.
     pub fn set_embed_truncation(&self, mode: &str) {
         let _ = self.embed_truncation.set(mode.to_owned());
+    }
+
+    /// Sets the projects every scoped recall also searches (`general` until set).
+    pub fn set_global_projects(&self, projects: Vec<String>) {
+        *self
+            .global_projects
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = projects;
+    }
+
+    pub(crate) fn global_projects(&self) -> Vec<String> {
+        self.global_projects
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
     }
 }
 
@@ -203,6 +225,9 @@ pub struct Args {
     /// Seconds between background embedding sweeps
     #[arg(long, default_value_t = 5)]
     embed_interval_secs: u64,
+    /// A project every scoped recall also searches; repeat for more (default: $LAMPL_GLOBAL_PROJECTS, else `general`; pass `--global-project ''` for none)
+    #[arg(long = "global-project", value_name = "PROJECT")]
+    global_projects: Vec<String>,
 }
 
 #[derive(clap::Args, Debug)]
@@ -371,6 +396,13 @@ fn serve(args: Args) -> Result<(), String> {
         if let Some(t) = &truncation {
             state.set_embed_truncation(t);
         }
+        let globals = if args.global_projects.is_empty() {
+            lampl_core::global_projects_from_env()
+        } else {
+            lampl_core::parse_global_projects(&args.global_projects.join(","))
+        };
+        tracing::info!(global_projects = ?globals, "scoped recall also searches these projects");
+        state.set_global_projects(globals);
         probe(&state).await;
         tokio::spawn(worker::run(
             Arc::clone(&state),

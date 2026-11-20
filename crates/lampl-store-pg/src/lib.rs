@@ -40,7 +40,8 @@ pub struct RecallQuery {
     pub embedding: Option<Vec<f32>>,
     /// Digest of the model that produced `embedding`; the vector arm compares only rows embedded by that same digest.
     pub embedding_digest: Option<String>,
-    pub project: Option<String>,
+    /// Projects to search; empty searches the whole store.
+    pub projects: Vec<String>,
     pub limit: usize,
     pub floor: Floor,
 }
@@ -51,7 +52,7 @@ impl RecallQuery {
             text: text.into(),
             embedding: None,
             embedding_digest: None,
-            project: None,
+            projects: Vec::new(),
             limit: 10,
             floor: Floor::default(),
         }
@@ -318,7 +319,7 @@ impl PgStore {
             None => None,
         };
         let active = "NOT EXISTS (SELECT 1 FROM links s WHERE s.to_id = m.id AND s.link_type = 'SUPERSEDES') \
-                      AND ($1::text IS NULL OR m.project = $1)";
+                      AND (cardinality($1::text[]) = 0 OR m.project = ANY($1))";
 
         let fts_ids: Vec<Uuid> = if terms.is_empty() {
             Vec::new()
@@ -329,7 +330,7 @@ impl PgStore {
                  WHERE m.tsv @@ q.tq AND {active} ORDER BY ts_rank_cd(m.tsv, q.tq) DESC, m.id LIMIT $3"
             );
             sqlx::query_scalar(AssertSqlSafe(sql))
-                .bind(&q.project)
+                .bind(&q.projects)
                 .bind(&terms)
                 .bind(CANDIDATES)
                 .fetch_all(&self.pool)
@@ -344,7 +345,7 @@ impl PgStore {
                  WHERE m.embedding IS NOT NULL AND m.embedding_digest = $4 AND {active} ORDER BY m.embedding <=> $2, m.id LIMIT $3"
             );
             let rows = sqlx::query(AssertSqlSafe(sql))
-                .bind(&q.project)
+                .bind(&q.projects)
                 .bind(v)
                 .bind(CANDIDATES)
                 .bind(&q.embedding_digest)
@@ -364,7 +365,7 @@ impl PgStore {
         let ids: Vec<Uuid> = fused.iter().map(|(id, _)| *id).collect();
 
         let coverage = self
-            .coverage(&terms, &ids, q.project.as_deref(), q.floor.coverage_norm)
+            .coverage(&terms, &ids, &q.projects, q.floor.coverage_norm)
             .await?;
 
         let sql = format!("SELECT {MEMORY_COLUMNS} FROM memories WHERE id = ANY($1)");
@@ -409,24 +410,24 @@ impl PgStore {
         &self,
         terms: &[String],
         ids: &[Uuid],
-        project: Option<&str>,
+        projects: &[String],
         norm: CoverageNorm,
     ) -> Result<HashMap<Uuid, (f64, f64)>, StoreError> {
         if terms.is_empty() {
             return Ok(HashMap::new());
         }
         let total: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM memories WHERE $1::text IS NULL OR project = $1",
+            "SELECT count(*) FROM memories WHERE cardinality($1::text[]) = 0 OR project = ANY($1)",
         )
-        .bind(project)
+        .bind(projects)
         .fetch_one(&self.pool)
         .await?;
         let df_rows = sqlx::query(
             "SELECT t.term, count(m.id) AS df FROM unnest($2::text[]) AS t(term) \
-             LEFT JOIN memories m ON m.tsv @@ quote_literal(t.term)::tsquery AND ($1::text IS NULL OR m.project = $1) \
+             LEFT JOIN memories m ON m.tsv @@ quote_literal(t.term)::tsquery AND (cardinality($1::text[]) = 0 OR m.project = ANY($1)) \
              GROUP BY t.term",
         )
-        .bind(project)
+        .bind(projects)
         .bind(terms)
         .fetch_all(&self.pool)
         .await?;
