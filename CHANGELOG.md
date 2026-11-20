@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/moneymikeMD/lamplighter/compare/v0.4.1...v0.5.0) (2026-11-20)
+
+
+### Features
+
+* **recall:** scoped recall also searches the global projects; the plugin hook scopes to the session's repo ([#50](https://github.com/moneymikeMD/lamplighter/issues/50)) ([26e6224](https://github.com/moneymikeMD/lamplighter/commit/26e6224ec4c28292f427eb1fb3832ee69fa34ae4))
+
 ## [0.4.1](https://github.com/moneymikeMD/lamplighter/compare/v0.4.0...v0.4.1) (2026-11-09)
 
 
