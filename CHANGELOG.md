@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/moneymikeMD/lamplighter/compare/v0.5.0...v0.5.1) (2026-11-20)
+
+
+### Bug Fixes
+
+* **release:** bump the plugin's plugin.json version with every release ([#52](https://github.com/moneymikeMD/lamplighter/issues/52)) ([3a34b73](https://github.com/moneymikeMD/lamplighter/commit/3a34b73dc78cc12ef98e58fbbed0c871941f9347))
+
 ## [0.5.0](https://github.com/moneymikeMD/lamplighter/compare/v0.4.1...v0.5.0) (2026-11-20)
 
 
