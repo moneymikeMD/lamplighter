@@ -47,6 +47,11 @@
           "type": "toml",
           "path": "crates/lamplighter/Cargo.toml",
           "jsonpath": "$.dependencies.lampl.version"
+        },
+        {
+          "type": "json",
+          "path": "plugin/.claude-plugin/plugin.json",
+          "jsonpath": "$.version"
         }
       ]
     }
