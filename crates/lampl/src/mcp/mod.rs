@@ -45,6 +45,7 @@ impl ServerHandler for Memory {
             .await
             .map_err(|e| ErrorData::internal_error(format!("tool task failed: {e}"), None))?;
         Ok(match outcome {
+            Ok(Value::String(text)) => CallToolResult::success(vec![ContentBlock::text(text)]),
             Ok(value) => CallToolResult::success(vec![ContentBlock::text(value.to_string())]),
             Err(msg) => CallToolResult::error(vec![ContentBlock::text(msg)]),
         }

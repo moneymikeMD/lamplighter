@@ -201,7 +201,11 @@ fn stub_server() -> String {
             let mut body = vec![0; length];
             reader.read_exact(&mut body).unwrap();
             let reply = if request_line.contains("/v1/recall") {
-                json!({"mode":"full-text","hits":[{"memory":{"title":format!("seeded {}", String::from_utf8_lossy(&body))},"score":1.0,"cosine":null,"coverage":1.0}]})
+                json!({"mode":"full-text","hits":[
+                    {"memory":{"title":format!("seeded {}", String::from_utf8_lossy(&body))},"score":1.0,"cosine":null,"coverage":1.0},
+                    {"memory":{"id":"00000000-0000-0000-0000-0000000000a1","title":"close match","body":"line one\nline two","created_at":"2026-11-20T10:00:00Z"},"score":0.03,"cosine":0.95,"coverage":0.6},
+                    {"memory":{"id":"00000000-0000-0000-0000-0000000000a2","title":"loose match","body":"x".repeat(300),"created_at":"2026-11-19T10:00:00Z"},"score":0.02,"cosine":0.55,"coverage":0.1}
+                ]})
             } else if request_line.contains("/v1/memories") {
                 json!({"id":"00000000-0000-0000-0000-000000000009","title":"t"})
             } else {
@@ -232,8 +236,9 @@ fn recall_and_store_succeed_against_a_server_with_clean_json_rpc_stdout() {
     let msgs = session(
         d.path(),
         &[
-            tool_call("recall", &json!({"query": "seeded"})),
+            tool_call("recall", &json!({"query": "seeded", "full": true})),
             tool_call("store", &json!({"title": "t", "body": "b"})),
+            tool_call("recall", &json!({"query": "seeded", "min_score": 0.9})),
         ],
     );
     assert!(msgs.iter().all(|m| m["jsonrpc"] == "2.0"), "{msgs:?}");
@@ -250,6 +255,80 @@ fn recall_and_store_succeed_against_a_server_with_clean_json_rpc_stdout() {
     assert!(payload["warning"].as_str().unwrap().contains("full-text"));
     let stored = &reply(&msgs, 2)["result"];
     assert_ne!(stored["isError"], true, "{stored}");
+    let brief = reply(&msgs, 3)["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(brief.starts_with("warning: "), "{brief}");
+    assert!(
+        brief.contains(
+            "2026-11-20 00000000-0000-0000-0000-0000000000a1 0.95 close match — line one line two"
+        ),
+        "{brief}"
+    );
+    assert!(!brief.contains("loose match"), "{brief}");
+    assert!(brief.lines().all(|l| !l.starts_with('{')), "{brief}");
+}
+
+fn recall_cli(d: &std::path::Path, url: &str, extra: &[&str]) -> String {
+    let lampl = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_lampl"))
+            .args(args)
+            .env("LAMPL_CONFIG_DIR", d)
+            .env("LAMPL_DATA_DIR", d)
+            .env("LAMPL_API_KEY", "test-key")
+            .output()
+            .unwrap()
+    };
+    assert!(lampl(&["init", "--server", url]).status.success());
+    let mut args = vec!["recall", "q"];
+    args.extend_from_slice(extra);
+    let out = lampl(&args);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8(out.stdout).unwrap()
+}
+
+#[test]
+fn recall_prints_one_brief_line_per_hit_by_default() {
+    let d = tempfile::tempdir().unwrap();
+    let out = recall_cli(d.path(), &stub_server(), &[]);
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines.len(), 3, "{out}");
+    assert!(lines.iter().all(|l| !l.starts_with('{')), "{out}");
+    assert!(
+        lines[1].starts_with("2026-11-20 00000000-0000-0000-0000-0000000000a1 0.95 close match"),
+        "{out}"
+    );
+    let loose = format!(
+        "2026-11-19 00000000-0000-0000-0000-0000000000a2 0.55 loose match — {}…",
+        "x".repeat(200)
+    );
+    assert_eq!(lines[2], loose);
+}
+
+#[test]
+fn recall_min_score_drops_hits_whose_cosine_is_lower() {
+    let d = tempfile::tempdir().unwrap();
+    let out = recall_cli(d.path(), &stub_server(), &["--min-score", "0.9"]);
+    assert!(out.contains("close match"), "{out}");
+    assert!(!out.contains("loose match"), "{out}");
+    let v: Value = serde_json::from_str(&recall_cli(
+        d.path(),
+        &stub_server(),
+        &["--min-score", "0.9", "--json"],
+    ))
+    .unwrap();
+    let cosines: Vec<Option<f64>> = v["hits"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|h| h["cosine"].as_f64())
+        .collect();
+    assert_eq!(cosines, [None, Some(0.95)]);
 }
 
 #[test]
