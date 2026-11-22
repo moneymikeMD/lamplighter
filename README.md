@@ -91,8 +91,8 @@ The floor was calibrated, not guessed: see [docs/ranking.md](docs/ranking.md) fo
 
 ## Claude Code plugin
 
-The plugin makes memory ambient. On `SessionStart`, `UserPromptSubmit` and after a failed Bash call, the hook runs `lampl recall --json` and injects the top matches, each memory once per session. It
-has a 4 second budget, a circuit breaker, and prints a one-line message when memory is broken rather than pretending it is empty.
+The plugin makes memory ambient. On `SessionStart`, `UserPromptSubmit` and after a failed Bash call, the hook runs `lampl recall --json` and injects the top matches, each memory once per session.
+The first Bash command per session that runs `claude -p` or `claude --print` is held once, with what is known about headless runs, before any money is spent. It has a 4 second budget, a circuit breaker, and prints a one-line message when memory is broken rather than pretending it is empty.
 
 | MCP tool | Purpose |
 | --- | --- |
