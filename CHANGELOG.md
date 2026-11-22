@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.0](https://github.com/moneymikeMD/lamplighter/compare/v0.6.0...v0.7.0) (2026-11-22)
+
+
+### Features
+
+* **plugin:** skip prompts that are not the owner's, and inject bodies only for close matches (LAMP-38) ([#57](https://github.com/moneymikeMD/lamplighter/issues/57)) ([69fe19d](https://github.com/moneymikeMD/lamplighter/commit/69fe19d7340662c77b81e287b9185a9704a0bc87))
+* **recall:** brief one-line output by default, --min-score on cosine, --json and MCP full for the records (LAMP-37) ([#56](https://github.com/moneymikeMD/lamplighter/issues/56)) ([d2bef3c](https://github.com/moneymikeMD/lamplighter/commit/d2bef3c2abdbd357de58a2ce5b99715702740cc8))
+
 ## [0.6.0](https://github.com/moneymikeMD/lamplighter/compare/v0.5.1...v0.6.0) (2026-11-22)
 
 
