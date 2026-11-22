@@ -28,8 +28,12 @@ case "$STUB_MODE" in
 esac
 """
 
-HITS = {"hits": [{"score": 1.0, "memory": {"id": "m%d" % i, "title": "Title %d" % i, "body": "Body %d" % i}}
-                 for i in range(1, 6)], "warning": None}
+COSINES = (0.9, 0.85, 0.8, 0.75, 0.72)
+HITS = {"hits": [{"score": 1.0, "cosine": c, "memory": {"id": "m%d" % i, "title": "Title %d" % i, "body": "Body %d" % i}}
+                 for i, c in enumerate(COSINES, 1)], "warning": None}
+WEAK = {"hits": [{"score": 1.0, "cosine": 0.55, "memory": {"id": "w1", "title": "TrueNAS Docker note", "body": "Weak body"}},
+                 {"score": 1.0, "cosine": None, "memory": {"id": "w2", "title": "Full-text only", "body": "Text body"}}],
+        "warning": None}
 
 failures = []
 
@@ -54,6 +58,9 @@ class Rig:
         self.hits = os.path.join(self.root, "hits.json")
         with open(self.hits, "w") as fh:
             json.dump(HITS, fh)
+        self.weak = os.path.join(self.root, "weak.json")
+        with open(self.weak, "w") as fh:
+            json.dump(WEAK, fh)
         self.calls = os.path.join(self.root, "calls")
         self.state = os.path.join(self.root, "state")
 
@@ -126,6 +133,32 @@ def main():
         check("trivial prompt skips recall", out is None and rig.calls_made() == 0)
         code, out = rig.fire("hits", prompt="LAMP-10 status")
         check("ticket key bypasses the skip gate", out is not None)
+
+        rig.clear()
+        for name, handback in (
+                ("task notification", "<task-notification>\n<task-id>b0yv</task-id>\n<status>completed</status>\n"
+                                      "<summary>Background command \"Run the workspace test suite\" completed</summary>"),
+                ("system notification", "[SYSTEM NOTIFICATION - NOT USER INPUT]\nThis is an automated background-task "
+                                        "event about the TrueNAS docker restart"),
+                ("teammate message", '<teammate-message teammate_id="lab-810">finished the TrueNAS docker work'),
+                ("agent hand-back", "From lamplighter-opus: LAMP-37 landed bfffe0f, release 0.7.0 pending checks"),
+                ("named hand-back", "From lab-810 (homelab): TrueNAS docker restart verified on the box")):
+            code, out = rig.fire("hits", prompt=handback)
+            check("N1: a %s prompt injects nothing and makes no recall" % name, code == 0 and out is None
+                  and rig.calls_made() == 0, str(out))
+        code, out = rig.fire("hits", prompt="From now on: recall the TrueNAS docker notes before restarting containers")
+        check("N1: an owner prompt starting with From is still recalled", out is not None and rig.calls_made() == 1,
+              str(out))
+
+        rig.clear()
+        code, out = rig.fire("hits", prompt=prompt, env={"STUB_HITS": rig.weak})
+        check("F1: a 0.55 match and a full-text-only hit are injected as titles only",
+              out and "- TrueNAS Docker note [w1]" in context(out) and "- Full-text only [w2]" in context(out)
+              and "Weak body" not in context(out) and "## " not in context(out), str(out))
+        rig.clear()
+        code, out = rig.fire("hits", prompt=prompt, env={"STUB_HITS": rig.weak, "LAMPL_PUSH_BODY_COSINE": "0.5"})
+        check("F2: the body floor is a setting", out and "## TrueNAS Docker note [w1]" in context(out)
+              and "- Full-text only [w2]" in context(out), str(out))
 
         rig.clear()
         code, out = rig.fire("hits", event="SessionStart", source="startup")
