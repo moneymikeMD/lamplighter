@@ -157,14 +157,13 @@ impl Live {
     }
 
     fn recall_ids(&self, query: &str) -> Vec<String> {
-        self.ok(&["recall", "--query", query])
-            .lines()
-            .map(|l| {
-                serde_json::from_str::<Value>(l).unwrap()["memory"]["id"]
-                    .as_str()
-                    .unwrap()
-                    .to_owned()
-            })
+        let out: Value =
+            serde_json::from_str(&self.ok(&["recall", "--query", query, "--json"])).unwrap();
+        out["hits"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|h| h["memory"]["id"].as_str().unwrap().to_owned())
             .collect()
     }
 }

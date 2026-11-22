@@ -9,11 +9,11 @@ The tools use the same code as the CLI and the same configuration (`lampl init`)
 | Tool | Arguments | Mode |
 | --- | --- | --- |
 | `store` | `title`, `body`; optional `type` (enum), `tags`, `project`, `importance` | server or local |
-| `recall` | `query`; optional `project` (plus the global projects), `strict` (that project alone), `limit` | server or local |
+| `recall` | `query`; optional `project` (plus the global projects), `strict` (that project alone), `limit`, `min_score` (drop hits whose cosine is lower), `full` | server or local |
 | `get` | `id` | server |
 | `link` | `from`, `to`, `type` (enum); optional `strength` | server |
 | `related` | `id` | server |
 
 The `type` enums are generated at runtime from `MemoryType` and `LinkType` in `lampl-core`, so the schema cannot drift from what the store accepts. Unknown arguments are rejected.
 
-`recall` returns `{"hits": [...], "warning": ...}`; `warning` is set when the server's embedder is down and the result is full-text only. Export, import, audit and delete are CLI-only; delete is deliberately not an MCP tool, so an agent cannot remove memories on its own.
+`recall` returns one line per hit, as `lampl recall` prints them (date, id, cosine, title, first 200 characters of the body), preceded by a `warning:` line when the server's embedder is down and the result is full-text only, or `no memories matched`. With `full: true` it returns `{"hits": [...], "warning": ...}` with the whole records. Export, import, audit and delete are CLI-only; delete is deliberately not an MCP tool, so an agent cannot remove memories on its own.

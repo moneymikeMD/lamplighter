@@ -65,7 +65,7 @@ lampl recall "why did we pick postgres over redis for sessions" --project demo
 lampl recall "kubernetes ingress timeout" --project demo
 ```
 
-The first recall prints JSON hits, one per line and best first (the decision, then the gotcha), each with `cosine`, `coverage`, `score` and the `memory`. The second prints nothing, and `--json` makes that explicit as `{"hits":[],"warning":null}`.
+The first recall prints one line per hit, best first (the decision, then the gotcha): date, id, cosine, title and the start of the body. `--json` prints the full records with `cosine`, `coverage` and `score`. The second prints nothing, and `--json` makes that explicit as `{"hits":[],"warning":null}`.
 That empty answer is the relevance floor working. Next steps: [docs/quickstart.md](docs/quickstart.md).
 
 ## Choose your mode

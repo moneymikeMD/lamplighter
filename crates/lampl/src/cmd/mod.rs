@@ -77,9 +77,43 @@ pub(crate) fn recall(args: &local::RecallArgs) -> Result<(), String> {
         eprintln!("lampl: warning: {w}");
     }
     for hit in &out.hits {
-        print(hit);
+        println!("{}", brief_line(hit));
     }
     Ok(())
+}
+
+const BRIEF_BODY_CHARS: usize = 200;
+
+/// One line for a recall hit: date, id, cosine (`-` when full-text only), title, then the start of the body.
+pub(crate) fn brief_line(hit: &Value) -> String {
+    let m = &hit["memory"];
+    let date = m["created_at"].as_str().unwrap_or_default();
+    let date = date.get(..10).unwrap_or(date);
+    let cosine = hit["cosine"]
+        .as_f64()
+        .map_or_else(|| "-".to_owned(), |c| format!("{c:.2}"));
+    let one_line = |v: &Value| {
+        v.as_str()
+            .unwrap_or_default()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let title = one_line(&m["title"]);
+    let body = one_line(&m["body"]);
+    let mut snippet: String = body.chars().take(BRIEF_BODY_CHARS).collect();
+    if body.chars().count() > BRIEF_BODY_CHARS {
+        snippet.push('…');
+    }
+    let id = m["id"].as_str().unwrap_or_default();
+    format!("{date} {id} {cosine} {title} — {snippet}")
+}
+
+fn keep_hit(hit: &Value, min_score: Option<f64>) -> bool {
+    match (min_score, hit["cosine"].as_f64()) {
+        (Some(min), Some(cosine)) => cosine >= min,
+        _ => true,
+    }
 }
 
 pub(crate) struct RecallOutput {
@@ -89,7 +123,8 @@ pub(crate) struct RecallOutput {
 
 pub(crate) fn recall_hits(args: &local::RecallArgs) -> Result<RecallOutput, String> {
     let Some(settings) = server_settings()? else {
-        let (hits, warning) = local::recall_hits(args)?;
+        let (mut hits, warning) = local::recall_hits(args)?;
+        hits.retain(|h| keep_hit(h, args.min_score));
         return Ok(RecallOutput { hits, warning });
     };
     let client = Client::connect(&settings)?;
@@ -104,8 +139,10 @@ pub(crate) fn recall_hits(args: &local::RecallArgs) -> Result<RecallOutput, Stri
         }
     }
     let out = client.post("/v1/recall", &body)?;
+    let mut hits = out["hits"].as_array().cloned().unwrap_or_default();
+    hits.retain(|h| keep_hit(h, args.min_score));
     Ok(RecallOutput {
-        hits: out["hits"].as_array().cloned().unwrap_or_default(),
+        hits,
         warning: (out["mode"] == "full-text")
             .then_some("the server's embedder is unavailable; this recall is full-text only"),
     })

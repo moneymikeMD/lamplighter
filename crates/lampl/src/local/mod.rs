@@ -66,9 +66,12 @@ pub(crate) struct RecallArgs {
     /// Skip embedding; recall by full text only
     #[arg(long)]
     pub(crate) no_embed: bool,
-    /// Print one `{"hits": [...], "warning": ...}` object; an empty recall is `{"hits": []}`
+    /// Print the full records as one `{"hits": [...], "warning": ...}` object instead of one brief line per hit
     #[arg(long)]
     pub(crate) json: bool,
+    /// Drop hits whose cosine is below this; a full-text-only recall has no cosine and is not filtered
+    #[arg(long, value_name = "FLOAT")]
+    pub(crate) min_score: Option<f64>,
     /// Give up embedding the query after this many ms and recall by full text; env `LAMPL_EMBED_TIMEOUT_MS`
     #[arg(long, value_name = "MS")]
     pub(crate) embed_timeout_ms: Option<u64>,
@@ -84,6 +87,7 @@ impl RecallArgs {
             limit,
             no_embed: false,
             json: false,
+            min_score: None,
             embed_timeout_ms: None,
         }
     }

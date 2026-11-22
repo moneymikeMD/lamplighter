@@ -7,7 +7,7 @@ description: When and how to store, recall, link and supersede durable agent mem
 
 Memories are durable knowledge that would otherwise be lost when the session ends. They are not code structure; the code and the repo's docs already hold that.
 
-The plugin pushes matching memories into the session at start, on each prompt, after a failed Bash call and before the first `claude -p` Bash command, each once per session. Use the `lampl` MCP tools (`store`, `recall`, `get`, `link`, `related`) for anything the push missed; the same operations exist as `lampl` CLI commands.
+The plugin pushes matching memories into the session at start, on each prompt, after a failed Bash call and before the first `claude -p` Bash command, each once per session. Use the `lampl` MCP tools (`store`, `recall`, `get`, `link`, `related`) for anything the push missed; the same operations exist as `lampl` CLI commands. `recall` answers with one line per hit; `get` the id of the one that matters rather than asking for `full` output.
 
 ## Store, without being asked
 

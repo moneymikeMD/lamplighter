@@ -41,14 +41,16 @@ pub(super) fn definitions() -> Vec<Tool> {
         ),
         Tool::new(
             "recall",
-            "Recall memories matching a query.",
+            "Recall memories matching a query: one line per hit (date, id, cosine, title, start of body); `get` an id for the full record.",
             schema_arc(json!({
                 "type": "object",
                 "properties": {
                     "query": {"type": "string"},
                     "project": {"type": "string", "description": "Search this project plus the projects shared by every project (default `general`)"},
                     "strict": {"type": "boolean", "default": false, "description": "With project, search that project alone"},
-                    "limit": {"type": "integer", "minimum": 1, "default": 10}
+                    "limit": {"type": "integer", "minimum": 1, "default": 10},
+                    "min_score": {"type": "number", "description": "Drop hits whose cosine is below this"},
+                    "full": {"type": "boolean", "default": false, "description": "Return the full records as JSON"}
                 },
                 "required": ["query"],
                 "additionalProperties": false
@@ -128,6 +130,9 @@ struct RecallIn {
     strict: bool,
     #[serde(default = "default_limit")]
     limit: usize,
+    min_score: Option<f64>,
+    #[serde(default)]
+    full: bool,
 }
 
 fn default_limit() -> usize {
@@ -175,10 +180,22 @@ pub(super) fn call(name: &str, args: Value) -> Result<Value, String> {
         }
         "recall" => {
             let a: RecallIn = parse(name, args)?;
-            let out = cmd::recall_hits(&local::RecallArgs::new(
-                a.query, a.project, a.strict, a.limit,
-            ))?;
-            Ok(json!({"hits": out.hits, "warning": out.warning}))
+            let mut args = local::RecallArgs::new(a.query, a.project, a.strict, a.limit);
+            args.min_score = a.min_score;
+            let out = cmd::recall_hits(&args)?;
+            if a.full {
+                return Ok(json!({"hits": out.hits, "warning": out.warning}));
+            }
+            let mut lines: Vec<String> = out
+                .warning
+                .map(|w| format!("warning: {w}"))
+                .into_iter()
+                .collect();
+            if out.hits.is_empty() {
+                lines.push("no memories matched".to_owned());
+            }
+            lines.extend(out.hits.iter().map(cmd::brief_line));
+            Ok(Value::String(lines.join("\n")))
         }
         "get" => cmd::get_value(parse::<IdIn>(name, args)?.id),
         "link" => {
