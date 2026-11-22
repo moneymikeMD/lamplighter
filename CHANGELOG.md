@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/moneymikeMD/lamplighter/compare/v0.5.1...v0.6.0) (2026-11-22)
+
+
+### Features
+
+* **plugin:** hold the first claude -p command per session with what is known about headless runs ([#54](https://github.com/moneymikeMD/lamplighter/issues/54)) ([aa019ff](https://github.com/moneymikeMD/lamplighter/commit/aa019ff756bfde2a86f2ef5a86f4650e9e7768b4))
+
 ## [0.5.1](https://github.com/moneymikeMD/lamplighter/compare/v0.5.0...v0.5.1) (2026-11-20)
 
 
