@@ -57,7 +57,7 @@ those numbers are in [ranking.md](ranking.md). In server mode, a new memory is s
 
 | Door | Direction | Page |
 | --- | --- | --- |
-| Hooks | Push: matching memories are injected at session start, on each prompt and after a failed Bash call | [plugin.md](plugin.md) |
+| Hooks | Push: matching memories are injected at session start, on each prompt, after a failed Bash call and before the first `claude -p` command | [plugin.md](plugin.md) |
 | MCP | Pull: `store`, `recall`, `get`, `link`, `related` | [mcp.md](mcp.md) |
 | CLI | Pull and admin: also `doctor`, `audit`, `export`, `import` | [cli.md](cli.md) |
 | Skill | Teaches when to store and how to supersede | [plugin.md](plugin.md) |

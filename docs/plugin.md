@@ -4,7 +4,7 @@
 
 | Part | What it does |
 | --- | --- |
-| `hooks/lamplighter-push.py` | On SessionStart, UserPromptSubmit and PostToolUseFailure (Bash) runs `lampl recall --json` and injects the top memories as context, each memory once per session |
+| `hooks/lamplighter-push.py` | On SessionStart, UserPromptSubmit, PostToolUseFailure (Bash) and PreToolUse (Bash, first headless `claude` only) runs `lampl recall --json` and injects the top memories as context, each memory once per session |
 | `.mcp.json` | Registers `lampl mcp` as an MCP server, resolved from PATH |
 | `skills/lamplighter/SKILL.md` | The usage protocol: what to store, what not to, how to link and supersede |
 
@@ -12,6 +12,7 @@
 
 - Scope: inside a git repo the hook recalls with `--project <repo>`, the origin remote's repository name or else the work tree's directory name, so the server adds its global projects (`general`) and leaves out every other project. Outside a git repo it recalls unscoped. `LAMPL_PROJECT` overrides the name, and an empty `LAMPL_PROJECT` recalls unscoped.
 - Budget: 4 s total (git lookups inside it), hook timeout 5 s. The hook passes `--embed-timeout-ms 1500` to `lampl recall`, which then answers full-text only with a warning; killing the process at 3.5 s is the outer guard. A failure opens a machine-wide circuit breaker for 5 minutes and tells only the session that hit it. While the breaker is open, other sessions skip quietly, and each new session's SessionStart makes one probe recall: success closes the breaker, failure keeps it open and tells that session. Running out of budget before `lampl` starts is not a `lampl` failure and does not open the breaker.
+- Headless runs: PreToolUse (Bash) fires on every Bash call but recalls only for the first command per session whose command word is `claude` (after env assignments and wrappers such as `timeout` or `nohup`) with `-p` or `--print`. It recalls unscoped with the fixed query `claude -p headless trials cost prompt cache`, because the technique lives in whichever project first paid for it. With anything new to show, it denies that one call with the memories as the reason and tells the model to run it again; later headless commands in the session pass untouched. `additionalContext` would arrive only beside the tool result, after the spend (measured on Claude Code 2.1.330). A failed recall, an open breaker or nothing new never holds the command. A `claude -p` started from inside a script, not on the Bash command line, is not seen.
 - Prompts with three or fewer content words are skipped unless they contain a ticket key.
 - Empty recall (`{"hits": []}`) is silent. Failures are never silent: the first of each kind per session prints one message (`lampl` missing, API version mismatch, embedding model missing, timeout, other error) and later ones stay quiet. A recall that succeeds with a warning (the server's embedder is down, or embedding timed out) shows the warning once per session and still injects the hits. The missing-model message names the real fix: `lampl init --local --prepare` or `lampl doctor --fetch-model` in local mode, `lampl doctor` for a server's embedder.
 - The hook never downloads the model; `lampl doctor --fetch-model` does.

@@ -26,7 +26,13 @@ EMBED_TIMEOUT_MS = 1500
 GIT_BUDGET = 0.8
 REAP_SECONDS = 0.5
 DEFAULT_SKIP_WORDS = 3
+HEADLESS_QUERY = "claude -p headless trials cost prompt cache"
+HEADLESS_FLAGS = frozenset(("-p", "--print"))
 
+SEGMENT = re.compile(r"[;&|\n()`]|\$\(")
+WRAPPERS = frozenset(("env", "time", "timeout", "nohup", "nice", "command", "exec", "sudo", "xargs", "do", "then",
+                      "else", "!", "{"))
+PREFIX_WORD = re.compile(r"^(?:[A-Za-z_][A-Za-z0-9_]*=\S*|-\S*|[0-9.]+[smhd]?)$")
 WORD = re.compile(r"[^\W_]+")
 TICKET_KEY = re.compile(r"(?<![\w-])[A-Za-z][A-Za-z0-9]*-[0-9]+\b")
 # PostgreSQL's english.stop verbatim: the list the store's full-text recall drops.
@@ -82,6 +88,19 @@ def gate_record(event, data):
     if words > limit:
         return None
     return {"event": event, "outcome": "few-words", "content_words": words, "query_chars": len(head)}
+
+
+def headless_claude(command):
+    """True when a shell command line starts `claude` with -p or --print in any of its segments."""
+    for segment in SEGMENT.split(command or ""):
+        words = segment.split()
+        for i, word in enumerate(words):
+            if word in WRAPPERS or PREFIX_WORD.match(word):
+                continue
+            if os.path.basename(word.strip("'\"")) == "claude" and HEADLESS_FLAGS.intersection(words[i + 1:]):
+                return True
+            break
+    return False
 
 
 def run(argv, budget, cwd=None):
@@ -204,13 +223,16 @@ def session_query(cwd, deadline):
 
 
 class State:
-    """Per-session record of answered queries (q), injected memory ids (m), shown notices (n) and breaker probes (p)."""
+    """Per-session record of answered queries (q), injected memory ids (m), shown notices (n), breaker probes (p)
+    and one-shot triggers already fired (t)."""
+
+    KINDS = ("q", "m", "n", "p", "t")
 
     def __init__(self, session_id):
         self.dir = os.environ.get("LAMPL_PUSH_STATE") or os.path.join(tempfile.gettempdir(), "lamplighter-push")
         name = re.sub(r"[^A-Za-z0-9_-]", "_", session_id) if session_id else ""
         self.path = os.path.join(self.dir, "session-" + name) if name else None
-        self.seen = {"q": set(), "m": set(), "n": set(), "p": set()}
+        self.seen = {k: set() for k in self.KINDS}
         if self.path:
             try:
                 with open(self.path) as fh:
@@ -230,7 +252,7 @@ class State:
             pass
 
     def reset(self):
-        self.seen = {"q": set(), "m": set(), "n": set(), "p": set()}
+        self.seen = {k: set() for k in self.KINDS}
         if self.path:
             self._write("", "w")
 
@@ -288,6 +310,8 @@ def query_for(event, data, cwd, deadline):
             return ""
         text = (text_of(data.get("error")) or text_of(data.get("tool_response"))).strip()
         return text[-QUERY_CHARS:].strip()
+    if event == "PreToolUse":
+        return HEADLESS_QUERY
     return ""
 
 
@@ -323,6 +347,14 @@ def warning_notice(warning):
     return "degraded", "lamplighter: %s. Hits are full-text only. %s." % (warning.rstrip("."), remedy(warning))
 
 
+def hold(text):
+    """Deny the first headless `claude` command once, carrying the memories as the reason the model reads."""
+    reason = (text + "\nHeld once so you can read these before a paid headless run starts. This is not a refusal: "
+              "adjust the run if they apply, then run the command again; it will not be held a second time.")
+    sys.stdout.write(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+                                                        "permissionDecisionReason": reason}}) + "\n")
+
+
 def emit(event, context, notice):
     out = {}
     if notice:
@@ -345,6 +377,11 @@ def main():
     if not os.path.isdir(cwd):
         cwd = os.getcwd()
     state = State(data.get("session_id") or "")
+    if event == "PreToolUse":
+        command = (data.get("tool_input") or {}).get("command") if isinstance(data.get("tool_input"), dict) else ""
+        if data.get("tool_name") != "Bash" or not headless_claude(command or "") or "headless" in state.seen["t"]:
+            return
+        state.record("t", ["headless"])
     if event == "SessionStart" and data.get("source") in ("compact", "clear"):
         state.reset()
     skipped = gate_record(event, data)
@@ -364,7 +401,7 @@ def main():
     if event != "SessionStart" and digest in state.seen["q"]:
         log({"event": event, "outcome": "repeat"})
         return
-    project = session_project(cwd, deadline)
+    project = None if event == "PreToolUse" else session_project(cwd, deadline)
     budget = min(deadline.left(), env_float("LAMPL_PUSH_RECALL_CAP", RECALL_CAP))
     record = {"event": event, "query_chars": len(query)}
     if budget <= 0:
@@ -411,7 +448,10 @@ def main():
     state.record("m", [r["id"] for r in top + rest])
     record.update(outcome="pushed", payload_chars=len(text))
     log(record)
-    emit(event, text, notice)
+    if event == "PreToolUse":
+        hold("\n".join(p for p in (notice, text) if p))
+    else:
+        emit(event, text, notice)
 
 
 if __name__ == "__main__":

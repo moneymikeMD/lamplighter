@@ -263,6 +263,52 @@ def main():
         rig.clear()
         code, out = rig.fire("hits", prompt=prompt, path="/usr/bin:/bin")
         check("missing lampl is loud", out and "not on PATH" in out["systemMessage"], str(out))
+
+        def bash(mode, command, session="h1", **kw):
+            return rig.fire(mode, event="PreToolUse", session=session, tool_name="Bash",
+                            tool_input={"command": command}, **kw)
+
+        def held(out):
+            spec = (out or {}).get("hookSpecificOutput", {})
+            return spec.get("permissionDecision") == "deny" and spec.get("hookEventName") == "PreToolUse"
+
+        rig.clear()
+        code, out = bash("hits", 'claude -p "x" --output-format stream-json')
+        reason = out["hookSpecificOutput"]["permissionDecisionReason"] if held(out) else ""
+        check("H1: the first headless claude command is held with the memories", code == 0 and held(out)
+              and "## Title 1 [m1]" in reason and "run the command again" in reason, str(out))
+        check("H1: the headless recall is unscoped and fixed", "--query claude -p headless" in open(rig.calls).read()
+              and "--project" not in open(rig.calls).read(), open(rig.calls).read())
+        code, out = bash("hits", 'claude -p "x" --output-format stream-json')
+        check("H2: the same session is not held twice", out is None and rig.calls_made() == 1, str(out))
+        code, out = bash("hits", "cd /tmp && claude --model haiku --print 'y' | jq .")
+        check("H2: a different headless command in the same session is not held", out is None
+              and rig.calls_made() == 1, str(out))
+        code, out = bash("hits", "claude --print y", session="h2")
+        check("H3: --print triggers in a new session", held(out), str(out))
+        code, out = bash("hits", "FOO=1 timeout 600 claude --model haiku -p y > log &", session="h3")
+        check("H3: env assignments and wrappers before claude still trigger", held(out), str(out))
+
+        rig.clear()
+        for command in ("claude --version", "echo claude -p", 'git commit -m "feat: hold the first claude -p run"',
+                        "ls -p", "npx claude-code -p", "cargo test"):
+            code, out = bash("hits", command)
+            check("H4: %r is not held and makes no recall" % command, out is None and rig.calls_made() == 0, str(out))
+        code, out = rig.fire("hits", event="PreToolUse", tool_name="Edit", tool_input={"command": "claude -p x"})
+        check("H4: a non-Bash tool is ignored", out is None and rig.calls_made() == 0, str(out))
+
+        rig.clear()
+        code, out = bash("boom", "claude -p x")
+        check("H5: an unreachable server does not hold, and says so once", code == 0 and not held(out)
+              and "boom" in out["systemMessage"], str(out))
+        code, out = bash("boom", "claude -p x", session="h6")
+        check("H5: the open breaker lets headless runs through quietly", out is None, str(out))
+
+        rig.clear()
+        rig.fire("hits", prompt=prompt, session="h7")
+        rig.fire("hits", prompt="a different question about the embedding queue backlog and retry", session="h7")
+        code, out = bash("hits", "claude -p x", session="h7")
+        check("H6: nothing new to show means no hold", out is None, str(out))
     finally:
         shutil.rmtree(rig.root, ignore_errors=True)
 
