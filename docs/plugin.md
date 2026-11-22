@@ -14,6 +14,8 @@
 - Budget: 4 s total (git lookups inside it), hook timeout 5 s. The hook passes `--embed-timeout-ms 1500` to `lampl recall`, which then answers full-text only with a warning; killing the process at 3.5 s is the outer guard. A failure opens a machine-wide circuit breaker for 5 minutes and tells only the session that hit it. While the breaker is open, other sessions skip quietly, and each new session's SessionStart makes one probe recall: success closes the breaker, failure keeps it open and tells that session. Running out of budget before `lampl` starts is not a `lampl` failure and does not open the breaker.
 - Headless runs: PreToolUse (Bash) fires on every Bash call but recalls only for the first command per session whose command word is `claude` (after env assignments and wrappers such as `timeout` or `nohup`) with `-p` or `--print`. It recalls unscoped with the fixed query `claude -p headless trials cost prompt cache`, because the technique lives in whichever project first paid for it. With anything new to show, it denies that one call with the memories as the reason and tells the model to run it again; later headless commands in the session pass untouched. `additionalContext` would arrive only beside the tool result, after the spend (measured on Claude Code 2.1.330). A failed recall, an open breaker or nothing new never holds the command. A `claude -p` started from inside a script, not on the Bash command line, is not seen.
 - Prompts with three or fewer content words are skipped unless they contain a ticket key.
+- Prompts that are not the owner's are skipped: a `<task-notification>`, a `[SYSTEM NOTIFICATION`, a `<teammate-message`, or another agent's hand-back that opens with `From <agent-name>:` (a name with a hyphen, such as `lamplighter-opus` or `lab-810`).
+- Up to three hits whose cosine is at least 0.70 are injected in full (truncated to 1,250 characters); every other hit, including a full-text-only hit with no cosine, is listed by title and id. On 2026-11-21 the unrelated memories injected on task notifications scored cosine 0.39 to 0.64, and a direct match to an owner question 0.78.
 - Empty recall (`{"hits": []}`) is silent. Failures are never silent: the first of each kind per session prints one message (`lampl` missing, API version mismatch, embedding model missing, timeout, other error) and later ones stay quiet. A recall that succeeds with a warning (the server's embedder is down, or embedding timed out) shows the warning once per session and still injects the hits. The missing-model message names the real fix: `lampl init --local --prepare` or `lampl doctor --fetch-model` in local mode, `lampl doctor` for a server's embedder.
 - The hook never downloads the model; `lampl doctor --fetch-model` does.
 
@@ -26,6 +28,7 @@
 | `LAMPL_PUSH_BREAKER` | 300 | Breaker window in seconds |
 | `LAMPL_PROJECT` | repo name | Project to recall with; empty recalls unscoped |
 | `LAMPL_PUSH_SKIP_WORDS` | 3 | Skip prompts with this many content words or fewer; 0 disables |
+| `LAMPL_PUSH_BODY_COSINE` | 0.70 | Cosine a hit needs for its body to be injected; below it, title only |
 | `LAMPL_PUSH_STATE`, `LAMPL_PUSH_LOG` | temp dir, off | Session state directory; JSON-lines decision log |
 
 ## Tests

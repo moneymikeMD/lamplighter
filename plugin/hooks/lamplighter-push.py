@@ -26,6 +26,7 @@ EMBED_TIMEOUT_MS = 1500
 GIT_BUDGET = 0.8
 REAP_SECONDS = 0.5
 DEFAULT_SKIP_WORDS = 3
+DEFAULT_BODY_COSINE = 0.70
 HEADLESS_QUERY = "claude -p headless trials cost prompt cache"
 HEADLESS_FLAGS = frozenset(("-p", "--print"))
 
@@ -35,6 +36,8 @@ WRAPPERS = frozenset(("env", "time", "timeout", "nohup", "nice", "command", "exe
 PREFIX_WORD = re.compile(r"^(?:[A-Za-z_][A-Za-z0-9_]*=\S*|-\S*|[0-9.]+[smhd]?)$")
 WORD = re.compile(r"[^\W_]+")
 TICKET_KEY = re.compile(r"(?<![\w-])[A-Za-z][A-Za-z0-9]*-[0-9]+\b")
+NOT_OWNER = re.compile(r"\A\s*(?:<task-notification>|<teammate-message\b|\[SYSTEM NOTIFICATION\b"
+                       r"|From [\w.]+(?:-[\w.]+)+(?: \([^)\n]*\))?:)")
 # PostgreSQL's english.stop verbatim: the list the store's full-text recall drops.
 STOP_WORDS = frozenset("""
 i me my myself we our ours ourselves you your yours yourself yourselves he him his himself she her hers
@@ -77,11 +80,15 @@ def prompt_head(data):
 
 
 def gate_record(event, data):
-    """Return the log record when the content-word gate skips this prompt, else None."""
-    limit = env_int("LAMPL_PUSH_SKIP_WORDS", DEFAULT_SKIP_WORDS)
-    if event != "UserPromptSubmit" or limit <= 0:
+    """Return the log record when this prompt is skipped (not the owner's, or too few content words), else None."""
+    if event != "UserPromptSubmit":
         return None
     head = prompt_head(data)
+    if NOT_OWNER.match(head):
+        return {"event": event, "outcome": "not-owner", "query_chars": len(head)}
+    limit = env_int("LAMPL_PUSH_SKIP_WORDS", DEFAULT_SKIP_WORDS)
+    if limit <= 0:
+        return None
     if not head or TICKET_KEY.search(head):
         return None
     words = content_words(head)
@@ -131,7 +138,7 @@ def run(argv, budget, cwd=None):
 
 
 def parse_hits(text):
-    """Return ([{id, title, content}], warning) from `lampl recall --json`, or None when the output is not that object."""
+    """Return ([{id, title, content, cosine}], warning) from `lampl recall --json`, or None when the output is not that object."""
     try:
         data = json.loads(text)
     except ValueError:
@@ -143,8 +150,10 @@ def parse_hits(text):
     for hit in data["hits"]:
         mem = hit.get("memory") if isinstance(hit, dict) else None
         if isinstance(mem, dict) and mem.get("id") and mem.get("title"):
+            cosine = hit.get("cosine")
             results.append({"id": str(mem["id"]), "title": str(mem["title"]),
-                            "content": str(mem.get("body") or "")})
+                            "content": str(mem.get("body") or ""),
+                            "cosine": cosine if isinstance(cosine, (int, float)) else None})
     return results[:LIMIT], warning
 
 
@@ -158,8 +167,8 @@ def truncate(text, limit=BODY_CHARS):
 
 
 def payload(bodies, titles):
-    parts = ["Stored memories that may be relevant. The top ones are shown in full or truncated; "
-             "`lampl get <id>` prints one in full.\n"]
+    parts = ["Stored memories that may be relevant. Close matches are shown in full or truncated, weaker ones by "
+             "title; `lampl get <id>` prints one in full.\n"]
     for r in bodies:
         parts.append("## %s [%s]\n%s\n" % (r["title"], r["id"], truncate(r["content"])))
     if titles:
@@ -436,10 +445,13 @@ def main():
             state.record("n", [wkind])
             notice = wmessage
     fresh = [r for r in results if r["id"] not in state.seen["m"]]
-    top, rest = fresh[:BODIES], fresh[BODIES:]
+    floor = env_float("LAMPL_PUSH_BODY_COSINE", DEFAULT_BODY_COSINE)
+    strong = [r for r in fresh if r["cosine"] is not None and r["cosine"] >= floor]
+    top = strong[:BODIES]
+    rest = [r for r in fresh if r not in top]
     record.update(ids=[r["id"] for r in results], new=[r["id"] for r in fresh], full_bodies=len(top),
                   seconds=round(time.monotonic() - started, 2))
-    if not top:
+    if not fresh:
         record["outcome"] = "nothing-new" if results else "empty"
         log(record)
         emit(event, "", notice)
