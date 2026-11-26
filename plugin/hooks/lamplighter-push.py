@@ -79,6 +79,18 @@ def prompt_head(data):
     return (data.get("prompt") or "").strip()[:QUERY_CHARS].strip()
 
 
+def tool_input(data):
+    value = data.get("tool_input")
+    return value if isinstance(value, dict) else {}
+
+
+def brief_head(data):
+    """A subagent brief's description then prompt, whitespace collapsed, cut to the first QUERY_CHARS characters."""
+    spec = tool_input(data)
+    text = " ".join(str(spec.get(k) or "") for k in ("description", "prompt"))
+    return " ".join(text.split())[:QUERY_CHARS].strip()
+
+
 def gate_record(event, data):
     """Return the log record when this prompt is skipped (not the owner's, or too few content words), else None."""
     if event != "UserPromptSubmit":
@@ -320,7 +332,7 @@ def query_for(event, data, cwd, deadline):
         text = (text_of(data.get("error")) or text_of(data.get("tool_response"))).strip()
         return text[-QUERY_CHARS:].strip()
     if event == "PreToolUse":
-        return HEADLESS_QUERY
+        return brief_head(data) if data.get("tool_name") == "Agent" else HEADLESS_QUERY
     return ""
 
 
@@ -356,10 +368,17 @@ def warning_notice(warning):
     return "degraded", "lamplighter: %s. Hits are full-text only. %s." % (warning.rstrip("."), remedy(warning))
 
 
-def hold(text):
-    """Deny the first headless `claude` command once, carrying the memories as the reason the model reads."""
-    reason = (text + "\nHeld once so you can read these before a paid headless run starts. This is not a refusal: "
-              "adjust the run if they apply, then run the command again; it will not be held a second time.")
+HOLD_WHY = {
+    "Bash": ("Held once so you can read these before a paid headless run starts. This is not a refusal: adjust the "
+             "run if they apply, then run the command again; it will not be held a second time."),
+    "Agent": ("Held once so the brief can carry these before the subagent starts. This is not a refusal: put the ones "
+              "that apply into the brief, then spawn the agent again; it will not be held a second time."),
+}
+
+
+def hold(text, tool):
+    """Deny one tool call, carrying the memories as the reason the model reads."""
+    reason = text + "\n" + HOLD_WHY[tool]
     sys.stdout.write(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
                                                         "permissionDecisionReason": reason}}) + "\n")
 
@@ -386,11 +405,13 @@ def main():
     if not os.path.isdir(cwd):
         cwd = os.getcwd()
     state = State(data.get("session_id") or "")
-    if event == "PreToolUse":
-        command = (data.get("tool_input") or {}).get("command") if isinstance(data.get("tool_input"), dict) else ""
-        if data.get("tool_name") != "Bash" or not headless_claude(command or "") or "headless" in state.seen["t"]:
+    tool = data.get("tool_name") if event == "PreToolUse" else None
+    if tool == "Bash":
+        if not headless_claude(tool_input(data).get("command") or "") or "headless" in state.seen["t"]:
             return
         state.record("t", ["headless"])
+    elif event == "PreToolUse" and tool != "Agent":
+        return
     if event == "SessionStart" and data.get("source") in ("compact", "clear"):
         state.reset()
     skipped = gate_record(event, data)
@@ -410,14 +431,14 @@ def main():
     if event != "SessionStart" and digest in state.seen["q"]:
         log({"event": event, "outcome": "repeat"})
         return
-    project = None if event == "PreToolUse" else session_project(cwd, deadline)
+    project = None if tool == "Bash" else session_project(cwd, deadline)
     budget = min(deadline.left(), env_float("LAMPL_PUSH_RECALL_CAP", RECALL_CAP))
     record = {"event": event, "query_chars": len(query)}
     if budget <= 0:
         log(dict(record, outcome="budget"))
         return
     embed_ms = str(env_int("LAMPL_PUSH_EMBED_MS", EMBED_TIMEOUT_MS))
-    argv = ["lampl", "recall", "--query", query, "--limit", str(LIMIT), "--embed-timeout-ms", embed_ms, "--json"]
+    argv = ["lampl", "recall", "--query=" + query, "--limit", str(LIMIT), "--embed-timeout-ms", embed_ms, "--json"]
     if project:
         argv += ["--project", project]
         record["project"] = project
@@ -456,12 +477,17 @@ def main():
         log(record)
         emit(event, "", notice)
         return
+    if tool == "Agent" and not top:
+        record["outcome"] = "weak"
+        log(record)
+        emit(event, "", notice)
+        return
     text = payload(top, rest)
     state.record("m", [r["id"] for r in top + rest])
     record.update(outcome="pushed", payload_chars=len(text))
     log(record)
-    if event == "PreToolUse":
-        hold("\n".join(p for p in (notice, text) if p))
+    if tool:
+        hold("\n".join(p for p in (notice, text) if p), tool)
     else:
         emit(event, text, notice)
 
