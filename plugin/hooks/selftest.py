@@ -342,6 +342,59 @@ def main():
         rig.fire("hits", prompt="a different question about the embedding queue backlog and retry", session="h7")
         code, out = bash("hits", "claude -p x", session="h7")
         check("H6: nothing new to show means no hold", out is None, str(out))
+
+        def agent(mode, prompt, session="a1", description="Move backlog tickets", **kw):
+            return rig.fire(mode, event="PreToolUse", session=session, tool_name="Agent",
+                            tool_input={"description": description, "prompt": prompt,
+                                        "subagent_type": "general-purpose"}, **kw)
+
+        def query_sent():
+            line = open(rig.calls).read().splitlines()[-1]
+            return line.split("--query ", 1)[1].split(" --limit ", 1)[0]
+
+        brief = "Write a jira-agile-api.sh verb that moves tickets from the backlog into the sprint."
+        rig.clear()
+        code, out = agent("hits", brief)
+        reason = out["hookSpecificOutput"]["permissionDecisionReason"] if held(out) else ""
+        check("A1: a brief with close matches is held once with them", code == 0 and held(out)
+              and "## Title 1 [m1]" in reason and "spawn the agent again" in reason, str(out))
+        check("A1: the brief query is the description then the prompt", query_sent()
+              == "Move backlog tickets " + brief, query_sent())
+        code, out = agent("hits", brief)
+        check("A2: the same brief again goes through without a recall", out is None and rig.calls_made() == 1,
+              str(out))
+        code, out = agent("hits", brief + " Read the 13 November note first.")
+        check("A2: a rewritten brief with nothing new goes through", out is None, str(out))
+
+        rig.clear()
+        code, out = agent("empty", brief)
+        check("A3: a brief that matches nothing goes through silently", code == 0 and out is None, str(out))
+        code, out = agent("hits", brief, session="a2", env={"STUB_HITS": rig.weak})
+        check("A3: weak matches alone do not hold the spawn", out is None, str(out))
+
+        rig.clear()
+        filler = "background detail that the recall query never reaches " * 200
+        agent("hits", "Goal: rotate the TrueNAS docker credentials. " + filler + "TAILMARKER")
+        sent = query_sent()
+        check("A4: a long brief is cut to its first 400 characters, collapsed and headed by the description",
+              len(sent) <= 400 and sent.startswith("Move backlog tickets Goal: rotate the TrueNAS")
+              and "TAILMARKER" not in sent and "  " not in sent, "%d %r" % (len(sent), sent[:80]))
+
+        rig.clear()
+        code, out = agent("boom", brief)
+        check("A5: an unreachable server lets the spawn through and says so once", code == 0 and not held(out)
+              and "boom" in out["systemMessage"], str(out))
+        code, out = agent("boom", brief, session="a3")
+        check("A5: the open breaker lets later spawns through quietly", out is None, str(out))
+        rig.clear()
+        started = time.monotonic()
+        code, out = agent("slow", brief)
+        check("A5: a slow recall is cut off inside the budget and lets the spawn through", code == 0
+              and not held(out) and time.monotonic() - started < 4, str(out))
+
+        rig.clear()
+        code, out = agent("hits", "")
+        check("A6: an empty brief with only a description still recalls", rig.calls_made() == 1, str(out))
     finally:
         shutil.rmtree(rig.root, ignore_errors=True)
 
