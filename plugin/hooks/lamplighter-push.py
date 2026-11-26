@@ -438,7 +438,7 @@ def main():
         log(dict(record, outcome="budget"))
         return
     embed_ms = str(env_int("LAMPL_PUSH_EMBED_MS", EMBED_TIMEOUT_MS))
-    argv = ["lampl", "recall", "--query", query, "--limit", str(LIMIT), "--embed-timeout-ms", embed_ms, "--json"]
+    argv = ["lampl", "recall", "--query=" + query, "--limit", str(LIMIT), "--embed-timeout-ms", embed_ms, "--json"]
     if project:
         argv += ["--project", project]
         record["project"] = project

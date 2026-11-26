@@ -171,6 +171,11 @@ def main():
         rig.clear()
         code, out = rig.fire("hits", event="PostToolUseFailure", tool_name="Edit", error="nope nope nope nope")
         check("non-Bash failure is ignored", out is None and rig.calls_made() == 0)
+        rig.clear()
+        code, out = rig.fire("hits", event="PostToolUseFailure", tool_name="Bash",
+                             error="-f is not a valid option for this cargo subcommand")
+        check("a failure text starting with a dash is passed as the query's value, not as a flag",
+              out is not None and "--query=-f is not" in open(rig.calls).read(), open(rig.calls).read())
 
         rig.clear()
         code, out = rig.fire("hits", prompt=prompt, env={"LAMPL_PUSH": "0"})
@@ -310,7 +315,7 @@ def main():
         reason = out["hookSpecificOutput"]["permissionDecisionReason"] if held(out) else ""
         check("H1: the first headless claude command is held with the memories", code == 0 and held(out)
               and "## Title 1 [m1]" in reason and "run the command again" in reason, str(out))
-        check("H1: the headless recall is unscoped and fixed", "--query claude -p headless" in open(rig.calls).read()
+        check("H1: the headless recall is unscoped and fixed", "--query=claude -p headless" in open(rig.calls).read()
               and "--project" not in open(rig.calls).read(), open(rig.calls).read())
         code, out = bash("hits", 'claude -p "x" --output-format stream-json')
         check("H2: the same session is not held twice", out is None and rig.calls_made() == 1, str(out))
@@ -350,7 +355,7 @@ def main():
 
         def query_sent():
             line = open(rig.calls).read().splitlines()[-1]
-            return line.split("--query ", 1)[1].split(" --limit ", 1)[0]
+            return line.split("--query=", 1)[1].split(" --limit ", 1)[0]
 
         brief = "Write a jira-agile-api.sh verb that moves tickets from the backlog into the sprint."
         rig.clear()
