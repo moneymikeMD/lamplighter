@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.8.0](https://github.com/moneymikeMD/lamplighter/compare/v0.7.0...v0.8.0) (2026-11-26)
+
+
+### Features
+
+* **plugin:** hold a subagent spawn once with the memories its brief matches ([#60](https://github.com/moneymikeMD/lamplighter/issues/60)) ([f7b4635](https://github.com/moneymikeMD/lamplighter/commit/f7b46359f41076134338e4beb5d2d4cdc7eca246))
+
+
+### Bug Fixes
+
+* **deps:** bump url to 2.5.9 for RUSTSEC-2026-0592 ([#59](https://github.com/moneymikeMD/lamplighter/issues/59)) ([2d73014](https://github.com/moneymikeMD/lamplighter/commit/2d7301446b5f60e014ac16cad90fce4d429f1ace))
+
 ## [0.7.0](https://github.com/moneymikeMD/lamplighter/compare/v0.6.0...v0.7.0) (2026-11-22)
 
 
